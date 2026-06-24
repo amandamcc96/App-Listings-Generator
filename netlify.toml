@@ -1,0 +1,35 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+
+[[redirects]]
+  from = "/api/generate"
+  to = "/.netlify/functions/generate"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/scan-guidelines"
+  to = "/.netlify/functions/scan-guidelines"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/custom-marketplaces"
+  to = "/.netlify/functions/custom-marketplaces"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/rescan-single"
+  to = "/.netlify/functions/rescan-single"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
