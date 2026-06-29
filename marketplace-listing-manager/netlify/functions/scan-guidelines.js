@@ -18,26 +18,53 @@ exports.handler = async function(event, context) {
 
     const now = new Date().toISOString()
 
-    const prompt = `You are analyzing official app marketplace listing guidelines. Below is the full content from the "${name}" marketplace's official documentation pages.
+    const prompt = `You are a compliance specialist analyzing official app marketplace listing guidelines for "${name}".
 
-Your job is to extract EVERY requirement, rule, limit, and specification — including requirements for features, descriptions, images, videos, icons, naming conventions, branding rules, pricing rules, character limits, submission steps, and anything else a developer needs to know to create a compliant listing.
+Below is the FULL content fetched directly from their official documentation pages. Your job is to extract EVERY SINGLE requirement — nothing can be missed, as developers will rely on this to build compliant listings.
 
-Be extremely thorough. Do not miss anything. If a field has specific formatting requirements (e.g. features need an image and description, icons must be 800x800px), include all of those details.
+EXTRACT ALL OF THE FOLLOWING WITHOUT EXCEPTION:
+1. Character limits for every field (title, short description, long description, features, tags, etc.)
+2. Feature requirements — do features need a title? A description? An image/screenshot? What are the specs?
+3. Icon requirements — dimensions, format (PNG/SVG/etc.), background rules, file size limits
+4. Screenshot requirements — dimensions, quantity (min/max), format, content restrictions
+5. Video requirements — platform (YouTube/Vimeo), length limits, content rules
+6. Tone and writing style rules — first person vs third person, prohibited phrases, required phrases
+7. Content restrictions — what is NOT allowed in descriptions (HTML, markdown, links, competitor mentions, etc.)
+8. Naming rules — what can/cannot be in the app name, whether "for [Platform]" suffix is required
+9. Pricing and commercial rules — free tier requirements, pricing display rules, trial requirements
+10. Branding rules — trademark usage, logo usage, platform name usage guidelines
+11. Category/tag rules — how many, which are allowed, how to choose
+12. Submission and review process steps — what happens after submitting, review timeline, what gets checked
+13. Post-listing requirements — what must be maintained, update frequency, support requirements
+14. Any recent updates or changes to requirements (changelogs)
+15. Any requirements specific to listing page sections (overview, features, pricing, support, etc.)
 
 DOCUMENTATION CONTENT:
 ${fetchedContent}
 
-Return ONLY valid JSON with this exact structure (no preamble, no markdown fences):
+Return ONLY valid JSON with this exact structure (no preamble, no markdown fences, no commentary):
 {
-  "maxTitle": 50,
-  "maxShortDesc": 200,
-  "maxDesc": 1500,
-  "maxFeatures": 5,
-  "maxFeatureLen": 100,
-  "maxTags": 5,
-  "tone": "describe the appropriate writing tone for this marketplace",
-  "rules": ["every content rule, naming convention, branding restriction, URL requirement, pricing rule, scope requirement, and compliance requirement as separate strings"],
-  "nextSteps": ["every image spec with dimensions and format, video requirement, icon requirement, screenshot requirement, feature card requirement, submission step, and post-listing requirement as separate strings"],
+  "maxTitle": <number or null if not specified>,
+  "maxShortDesc": <number or null if not specified>,
+  "maxDesc": <number or null if not specified>,
+  "maxFeatures": <number or null if not specified>,
+  "maxFeatureLen": <number or null if not specified>,
+  "maxTags": <number or null if not specified>,
+  "tone": "<describe the exact required writing tone, person (first/third), style, and any specific voice requirements>",
+  "featureRequirements": "<describe exactly what each feature entry must include — title only? title + description? title + description + image? image specs?>",
+  "iconSpec": "<exact icon dimensions, format, file size limit, background color rules, and any other icon requirements>",
+  "screenshotSpec": "<exact screenshot dimensions, min/max quantity, format, content rules, caption requirements>",
+  "videoSpec": "<video platform requirements, length limits, content rules, or 'not required' if not mentioned>",
+  "rules": [
+    "<each rule as a complete, specific, actionable sentence>",
+    "<include every naming rule, content restriction, branding rule, prohibited element, required element>",
+    "<be specific — e.g. 'App name must not exceed 50 characters and must not include the word App' not just 'follow naming rules'>"
+  ],
+  "nextSteps": [
+    "<each submission step as a specific actionable instruction>",
+    "<include every image/asset requirement, review process step, post-listing maintenance requirement>",
+    "<include any recent requirement changes from changelogs>"
+  ],
   "lastScanned": "${now}"
 }`
 
@@ -50,7 +77,7 @@ Return ONLY valid JSON with this exact structure (no preamble, no markdown fence
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 3000,
+        max_tokens: 6000,
         messages: [{ role: 'user', content: prompt }]
       })
     })
@@ -81,7 +108,7 @@ Return ONLY valid JSON with this exact structure (no preamble, no markdown fence
       guidelines: {
         ...guidelines,
         rules: [
-          'Long description must be plain text only — no HTML no markdown no heading tags',
+          'Long description must be plain text only — no HTML, no markdown, no heading tags',
           ...(guidelines.rules || [])
         ]
       }

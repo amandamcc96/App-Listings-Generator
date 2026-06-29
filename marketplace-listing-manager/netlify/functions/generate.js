@@ -4,32 +4,21 @@ async function fetchGuidelineContent(urls) {
   const results = []
   for (const url of urls) {
     try {
-      const resp = await fetch(url, {
-        headers: { 'User-Agent': 'CommercientListingManager/1.0' }
+      // Use Jina AI reader to handle JavaScript-rendered pages
+      const jinaUrl = `https://r.jina.ai/${url}`
+      const resp = await fetch(jinaUrl, {
+        headers: {
+          'User-Agent': 'CommercientListingManager/1.0',
+          'Accept': 'text/plain'
+        }
       })
       if (!resp.ok) continue
-      const html = await resp.text()
+      let text = await resp.text()
+      text = text.trim()
 
-      // Extract text content from HTML — strip tags and clean up
-      let text = html
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
-        .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
-        .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#x27;/g, "'")
-        .replace(/\s+/g, ' ')
-        .trim()
-
-      // Limit each page to ~3000 chars to stay within prompt limits
-      if (text.length > 3000) {
-        text = text.substring(0, 3000) + '...'
+      // Allow up to 12000 chars per URL to capture full requirements
+      if (text.length > 12000) {
+        text = text.substring(0, 12000) + '\n...[content truncated]'
       }
 
       if (text.length > 100) {
@@ -57,7 +46,7 @@ exports.handler = async function(event, context) {
     const body = JSON.parse(event.body)
     const { prompt, guidelineUrls } = body
 
-    // Fetch live guideline content if URLs are provided
+    // Fetch live guideline content via Jina AI if URLs are provided
     let guidelineContent = ''
     if (guidelineUrls && guidelineUrls.length > 0) {
       guidelineContent = await fetchGuidelineContent(guidelineUrls)
@@ -68,12 +57,24 @@ exports.handler = async function(event, context) {
     if (guidelineContent) {
       fullPrompt = `${prompt}
 
-IMPORTANT — LIVE MARKETPLACE GUIDELINES (fetched from official documentation):
-The following is the actual current content from the marketplace's official guideline pages. This is the PRIMARY source of truth. If any rule below conflicts with the guidelines stated above, follow these live guidelines instead.
+========================================================
+LIVE MARKETPLACE GUIDELINES — OFFICIAL DOCUMENTATION
+========================================================
+The following content was fetched directly from the marketplace's official guideline pages using a JavaScript-capable reader. This is the PRIMARY and authoritative source of truth for this listing.
 
+CRITICAL INSTRUCTIONS:
+- Read every guideline below carefully before generating anything
+- Every field you generate MUST comply with the character limits, formatting rules, tone requirements, and content restrictions stated in these guidelines
+- Pay special attention to: feature requirements (some marketplaces require an image + title + description per feature), icon specs, screenshot specs, video requirements, naming rules, prohibited words/phrases, and submission steps
+- If the guidelines specify what must or must not be included in descriptions, follow that exactly
+- Do not invent requirements — only enforce what the guidelines actually state
+
+OFFICIAL GUIDELINE CONTENT:
 ${guidelineContent}
 
-Remember: follow ALL requirements from the official guidelines above. Generate the listing JSON now.`
+========================================================
+Now generate the listing JSON, ensuring every field strictly follows the guidelines above.
+========================================================`
     }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -85,7 +86,7 @@ Remember: follow ALL requirements from the official guidelines above. Generate t
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
+        max_tokens: 4000,
         messages: [{ role: 'user', content: fullPrompt }]
       })
     })
@@ -98,11 +99,15 @@ Remember: follow ALL requirements from the official guidelines above. Generate t
     const data = await response.json()
     const text = data.content.map(i => i.text || '').join('')
     const clean = text.replace(/```json|```/g, '').trim()
+    const jsonMatch = clean.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) {
+      return { statusCode: 500, body: JSON.stringify({ error: 'AI did not return valid JSON' }) }
+    }
 
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(JSON.parse(clean))
+      body: JSON.stringify(JSON.parse(jsonMatch[0]))
     }
   } catch (err) {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) }
