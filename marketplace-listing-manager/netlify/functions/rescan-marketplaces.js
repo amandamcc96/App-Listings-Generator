@@ -1,115 +1,66 @@
 const { getStore } = require("@netlify/blobs");
-const { schedule } = require("@netlify/functions");
 
 async function fetchUrlContent(url) {
   try {
-    const resp = await fetch(url, {
-      headers: { 'User-Agent': 'CommercientListingManager/1.0' }
+    const jinaUrl = `https://r.jina.ai/${url}`
+    const resp = await fetch(jinaUrl, {
+      headers: { 'Accept': 'text/plain', 'User-Agent': 'CommercientListingManager/1.0' }
     })
     if (!resp.ok) return null
-    const html = await resp.text()
-    let text = html
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
-      .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
-      .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#x27;/g, "'")
-      .replace(/\s+/g, ' ').trim()
+    let text = await resp.text()
     if (text.length > 4000) text = text.substring(0, 4000) + '...'
-    return text
+    return text.length > 100 ? text : null
   } catch (e) { return null }
 }
 
-async function rescanMarketplace(marketplace, apiKey) {
-  const urls = marketplace.guidelineUrls || []
-  if (urls.length === 0) return marketplace
-
-  const contents = []
-  for (const url of urls) {
-    const content = await fetchUrlContent(url)
-    if (content) contents.push(`[Source: ${url}]\n${content}`)
-  }
-  if (contents.length === 0) return marketplace
-
-  const guidelineText = contents.join('\n\n---\n\n')
-  const now = new Date().toISOString()
-
-  const prompt = `You are analyzing app marketplace listing guidelines. Below is the actual content from the "${marketplace.name}" marketplace's official documentation pages.
-
-Extract ALL listing requirements and format them as a structured JSON object. Be thorough — capture every character limit, content rule, image requirement, and submission requirement mentioned.
-
-DOCUMENTATION CONTENT:
-${guidelineText}
-
-Return ONLY valid JSON with this exact structure (no preamble, no markdown fences):
-{
-  "maxTitle": <number or 0 if not specified>,
-  "maxShortDesc": <number or 0 if not specified>,
-  "maxDesc": <number or 0 if not specified>,
-  "maxFeatures": <number, default 5>,
-  "maxFeatureLen": <number, default 100>,
-  "maxTags": <number, default 5>,
-  "tone": "<recommended writing tone based on the marketplace>",
-  "rules": ["<every content rule, naming rule, branding rule, restriction, and requirement as a separate string>"],
-  "nextSteps": ["<every image requirement, screenshot spec, video requirement, submission step, and post-listing requirement as a separate string>"],
-  "lastScanned": "${now}"
-}`
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      messages: [{ role: 'user', content: prompt }]
-    })
-  })
-
-  if (!response.ok) return marketplace
-
-  const data = await response.json()
-  const text = data.content.map(i => i.text || '').join('')
-  const clean = text.replace(/```json|```/g, '').trim()
-  const guidelines = JSON.parse(clean)
-
-  return {
-    ...marketplace,
-    guidelines: {
-      ...guidelines,
-      rules: [
-        'Long description must be plain text only — no HTML no markdown no heading tags',
-        ...(guidelines.rules || [])
-      ]
-    }
-  }
-}
-
-// Scheduled function — runs on the 1st of January and July (every 6 months)
-module.exports.handler = schedule("0 0 1 1,7 *", async (event) => {
+exports.handler = async function(event, context) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return { statusCode: 500 }
 
   try {
-    const store = getStore({ name: "custom-marketplaces", consistency: "strong" })
+    const store = getStore({ name: "custom-marketplaces", siteID: process.env.SITE_ID, token: process.env.NETLIFY_TOKEN, consistency: "strong" })
     const list = await store.get("list", { type: "json" }) || []
-
-    if (list.length === 0) return { statusCode: 200 }
+    if (list.length === 0) return { statusCode: 200, body: JSON.stringify({ message: 'No marketplaces to rescan' }) }
 
     const updated = []
     for (const mp of list) {
-      const rescanned = await rescanMarketplace(mp, apiKey)
-      updated.push(rescanned)
+      const urls = mp.guidelineUrls || []
+      if (urls.length === 0) { updated.push(mp); continue }
+
+      const contents = []
+      for (const url of urls) {
+        const content = await fetchUrlContent(url)
+        if (content) contents.push(`[Source: ${url}]\n${content}`)
+      }
+      if (contents.length === 0) { updated.push(mp); continue }
+
+      const now = new Date().toISOString()
+      const prompt = `You are analyzing app marketplace listing guidelines for "${mp.name}". Extract ALL listing requirements as structured JSON.
+
+DOCUMENTATION:
+${contents.join('\n\n---\n\n')}
+
+Return ONLY valid JSON (no preamble, no fences):
+{"maxTitle":50,"maxShortDesc":200,"maxDesc":1500,"maxFeatures":5,"maxFeatureLen":100,"maxTags":5,"tone":"","rules":[],"nextSteps":[],"lastScanned":"${now}"}`
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] })
+      })
+
+      if (!response.ok) { updated.push(mp); continue }
+
+      const data = await response.json()
+      const text = data.content.map(i => i.text || '').join('')
+      const clean = text.replace(/```json|```/g, '').trim()
+      const guidelines = JSON.parse(clean)
+      updated.push({ ...mp, guidelines: { ...guidelines, rules: ['Long description must be plain text only — no HTML no markdown no heading tags', ...(guidelines.rules || [])] } })
     }
 
     await store.setJSON("list", updated)
-    return { statusCode: 200 }
+    return { statusCode: 200, body: JSON.stringify({ message: `Rescanned ${updated.length} marketplaces` }) }
   } catch (err) {
-    return { statusCode: 500 }
+    return { statusCode: 500, body: JSON.stringify({ error: err.message }) }
   }
-})
+}
