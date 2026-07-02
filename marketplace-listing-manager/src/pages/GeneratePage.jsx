@@ -52,14 +52,24 @@ function SystemPicker({ type, selected, onToggle, noSystem, onToggleNone }) {
   )
 }
 
-function LimitPill({ label, current, max }) {
-  // Null-safe: when a marketplace has no limit for this field, show the count without a ceiling
-  if (typeof max !== 'number' || max <= 0) {
-    return <span className="badge badge-green" style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{label}: {current}</span>
+function LimitPill({ label, current, min, max }) {
+  const hasMax = typeof max === 'number' && max > 0
+  const hasMin = typeof min === 'number' && min > 0
+  let text, cls
+  if (hasMax) {
+    const over = current > max
+    const under = hasMin && current < min
+    cls = (over || under) ? 'badge-red' : (current / max > 0.85 ? 'badge-amber' : 'badge-green')
+    text = `${label}: ${current}/${max}${hasMin ? ` (min ${min})` : ''}`
+  } else if (hasMin) {
+    cls = current < min ? 'badge-red' : 'badge-green'
+    text = `${label}: ${current} (min ${min})`
+  } else {
+    // No limit stated in the guidelines — show the honest live count, no invented ceiling
+    cls = 'badge-green'
+    text = `${label}: ${current}`
   }
-  const pct = current / max
-  const cls = pct > 1 ? 'badge-red' : pct > 0.85 ? 'badge-amber' : 'badge-green'
-  return <span className={`badge ${cls}`} style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{label}: {current}/{max}</span>
+  return <span className={`badge ${cls}`} style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{text}</span>
 }
 
 function ResultCard({ marketplace, result, onSave, onDelete, resultKey }) {
@@ -97,9 +107,9 @@ function ResultCard({ marketplace, result, onSave, onDelete, resultKey }) {
       {expanded && (
         <div className="result-body">
           <div className="limit-bar">
-            <LimitPill label="Title" current={(local.title || '').length} max={g.maxTitle} />
-            <LimitPill label="Short" current={(local.shortDescription || '').length} max={g.maxShortDesc} />
-            <LimitPill label="Long" current={(local.longDescription || '').length} max={g.maxDesc} />
+            <LimitPill label="Title" current={(local.title || '').length} min={g.minTitle} max={g.maxTitle} />
+            <LimitPill label="Short" current={(local.shortDescription || '').length} min={g.minShortDesc} max={g.maxShortDesc} />
+            <LimitPill label="Long" current={(local.longDescription || '').length} min={g.minDesc} max={g.maxDesc} />
           </div>
           <div className="form-group"><label>App title</label><input value={local.title || ''} onChange={e => set('title', e.target.value)} /></div>
           <div className="form-group"><label>Short description</label><textarea value={local.shortDescription || ''} onChange={e => set('shortDescription', e.target.value)} style={{ minHeight: 56 }} /></div>
@@ -200,25 +210,38 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
           const g = mp.guidelines || {}
           const sysLine = pair.erp && pair.crm ? `connecting ${pair.erp} (ERP) to ${pair.crm}` : pair.erp ? `for ${pair.erp} ERP users` : pair.crm ? `connecting to ${pair.crm}` : 'as a standalone integration'
 
-          // Null-safe limits: only enforce a hard number when the marketplace actually specifies one
+          // Only enforce numbers the marketplace actually states — never invent a limit
           const num = (v) => (typeof v === 'number' && v > 0) ? v : null
           const tMax = num(g.maxTitle), sMax = num(g.maxShortDesc), lMax = num(g.maxDesc)
-          const fMax = num(g.maxFeatures), flMax = num(g.maxFeatureLen), tagMax = num(g.maxTags)
+          const tMin = num(g.minTitle), sMin = num(g.minShortDesc), lMin = num(g.minDesc)
+          const fMax = num(g.maxFeatures), fMin = num(g.minFeatures), flMax = num(g.maxFeatureLen), tagMax = num(g.maxTags), tagMin = num(g.minTags)
+
+          // Turn a min/max pair into a plain-English constraint, or null when nothing is stated
+          const clause = (min, max, unit) => {
+            if (min && max) return `between ${min} and ${max} ${unit}`
+            if (max) return `no more than ${max} ${unit}`
+            if (min) return `at least ${min} ${unit}`
+            return null
+          }
+          const titleC = clause(tMin, tMax, 'characters')
+          const shortC = clause(sMin, sMax, 'characters')
+          const longC = clause(lMin, lMax, 'characters')
+          const featCountC = clause(fMin, fMax, 'features')
 
           const guidelineLines = [
-            tMax ? `- Title: STRICTLY max ${tMax} characters. Count every character carefully. Do not use colons or semicolons in the title.`
-                 : `- Title: keep it concise (around 30-50 characters). Do not use colons or semicolons in the title.`,
-            sMax ? `- Short description: STRICTLY max ${sMax} characters. Count every character carefully.`
-                 : `- Short description: keep it to roughly one clear sentence.`,
-            lMax ? `- Long description: STRICTLY max ${lMax} characters. This is the HARD LIMIT. Do NOT exceed it.`
-                 : `- Long description: a few short paragraphs. Do not pad or repeat.`,
-            fMax ? `- Features: max ${fMax}${flMax ? `, each STRICTLY max ${flMax} characters` : ''}`
-                 : (flMax ? `- Features: each STRICTLY max ${flMax} characters` : `- Features: 3-5 concise items`),
-            tagMax ? `- Tags: max ${tagMax}` : `- Tags: a few relevant keywords`,
+            `- Title: ${titleC ? `MUST be ${titleC}. ` : ''}Do not use colons or semicolons in the title.`,
+            `- Short description: ${shortC ? `MUST be ${shortC}.` : 'keep it to roughly one clear sentence.'}`,
+            `- Long description: ${longC ? `MUST be ${longC}. This is a HARD requirement.` : 'a few clear paragraphs; do not pad or repeat.'}`,
+            `- Features: ${featCountC ? `provide ${featCountC}` : 'provide 3-5 features'}${flMax ? `, each no more than ${flMax} characters` : ''}`,
+            tagMax || tagMin ? `- Tags: ${clause(tagMin, tagMax, 'tags')}` : `- Tags: a few relevant keywords`,
             `- Tone: ${g.tone || 'factual and descriptive'}`,
-            g.featureRequirements ? `- Feature format: ${g.featureRequirements}` : '',
             `- Rules: ${(g.rules || []).join(' | ')}`
           ].filter(Boolean).join('\n')
+
+          // The marketplace's exact required feature format — must always be applied
+          const featureFormatBlock = g.featureRequirements
+            ? `\n${mp.name.toUpperCase()} FEATURE FORMAT (follow this EXACTLY for every item in the features array):\n${g.featureRequirements}\nEach feature you write must match this required structure.\n`
+            : ''
 
           const prompt = `You are an expert app marketplace copywriter for Commercient, specialists in ERP/CRM integration software.
 
@@ -234,16 +257,19 @@ ${pair.crm ? `- CRM/App: ${pair.crm}` : ''}
 
 ${mp.name.toUpperCase()} GUIDELINES:
 ${guidelineLines}
-
+${featureFormatBlock}
 CRITICAL FORMATTING RULES:
 - ALL text must be PLAIN TEXT ONLY.
 - Do NOT use any HTML tags (no <h1>, <h2>, <p>, <br>, <b>, <strong>, <ul>, <li>, etc.)
 - Do NOT use any markdown formatting (no #, ##, **, *, -, etc.)
 - Do NOT use any special formatting characters or heading syntax.
 - Write the long description as natural flowing paragraphs separated by blank lines.
-${lMax ? `- The long description MUST be under ${lMax} characters. Count carefully. If approaching the limit, write less.` : ''}
-${tMax ? `- The title MUST be under ${tMax} characters and must NOT contain colons or semicolons.` : `- The title must NOT contain colons or semicolons.`}
-${sMax ? `- The short description MUST be under ${sMax} characters.` : ''}
+${lMax ? `- The long description MUST NOT exceed ${lMax} characters. If approaching the limit, write less.` : ''}
+${lMin ? `- The long description MUST be at least ${lMin} characters of substantive content (no filler or repetition to pad length).` : ''}
+${tMax ? `- The title MUST NOT exceed ${tMax} characters and must NOT contain colons or semicolons.` : `- The title must NOT contain colons or semicolons.`}
+${tMin ? `- The title MUST be at least ${tMin} characters.` : ''}
+${sMax ? `- The short description MUST NOT exceed ${sMax} characters.` : ''}
+${sMin ? `- The short description MUST be at least ${sMin} characters.` : ''}
 
 TONE AND LANGUAGE RULES:
 - Do NOT use any sales or marketing language.
@@ -285,6 +311,14 @@ Use your knowledge of both platforms to write an accurate factual listing. Retur
           const l = fitText(data.longDescription, lMax); data.longDescription = l.text
           if (l.trimmed) notes.push(`Long description auto-trimmed to fit the ${lMax}-character limit.`)
 
+          // Minimums can't be auto-padded without filler (which marketplaces reject), so flag if unmet
+          const checkMin = (fieldLabel, val, min) => {
+            if (min && (val || '').length < min) notes.push(`${fieldLabel} is ${(val || '').length}/${min} characters — below the required minimum. Add more detail before submitting.`)
+          }
+          checkMin('Title', data.title, tMin)
+          checkMin('Short description', data.shortDescription, sMin)
+          checkMin('Long description', data.longDescription, lMin)
+
           if (Array.isArray(data.features)) {
             // Trim each feature to its length limit, then cap the number of features
             let feats = data.features.map(f => fitText(f, flMax).text)
@@ -292,12 +326,18 @@ Use your knowledge of both platforms to write an accurate factual listing. Retur
               feats = feats.slice(0, fMax)
               notes.push(`Trimmed to the ${fMax} allowed features.`)
             }
+            if (fMin && feats.length < fMin) {
+              notes.push(`Only ${feats.length} features generated — at least ${fMin} required.`)
+            }
             data.features = feats
           }
 
           if (tagMax && Array.isArray(data.tags) && data.tags.length > tagMax) {
             data.tags = data.tags.slice(0, tagMax)
             notes.push(`Trimmed to the ${tagMax} allowed tags.`)
+          }
+          if (tagMin && Array.isArray(data.tags) && data.tags.length < tagMin) {
+            notes.push(`Only ${data.tags.length} tags — at least ${tagMin} required.`)
           }
 
           data.complianceNotes = notes

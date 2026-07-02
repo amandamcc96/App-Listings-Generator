@@ -1,5 +1,53 @@
 const { getStore } = require("@netlify/blobs");
 
+const LISTING_PROMPT = (name, content) => `You are extracting app marketplace LISTING guidelines for "${name}". Your output is used ONLY to write and validate the marketplace listing (the copy, images, links, and assets a customer sees). Nothing else.
+
+INCLUDE only things that change what goes INTO the listing:
+- Character/length limits for listing fields: app name/title, tagline/short description, long description/overview, feature titles and descriptions, tags/keywords. Capture BOTH maximums AND minimums exactly as stated (e.g. "the overview must be at least 160 characters").
+- Minimum required counts (e.g. "provide at least 3 screenshots", "at least 1 feature").
+- Required tone, voice, and point of view for the copy
+- What the description MUST and MUST NOT contain (e.g. plain text only, no HTML/markdown, no competitor names, no unsupported claims, no pricing inside the description)
+- App name / naming rules (prohibited words, forbidden use of the marketplace's brand name)
+- The exact required FORMAT for features/sections (does each feature need a title, a description of how customers use it, an image? how should each be structured?)
+- Image, icon, screenshot, and video specs — exact dimensions, format, count, aspect ratio, content rules
+- Required links and their rules (setup guide, support URL, privacy policy, install/CTA button)
+- Category and tag selection rules
+
+HARD EXCLUDE — never output any of these, even if the documentation is full of them:
+- OAuth versions or endpoints (e.g. /oauth/2026-03/token), API versions, SDKs
+- Developer platform version numbers (e.g. v2025.2, v2026.03), migration deadlines, "supported version" requirements
+- Legacy CRM cards, app cards, UI extensions, uninstall API, install caps, distribution mechanics
+- Security questionnaires, testing credentials, certification/recertification code requirements
+- Anything a developer does in CODE rather than in the listing copy
+IMPORTANT: If a source page is a changelog, release note, or developer update about platform/API/OAuth/migrations, extract NOTHING from it unless it literally changes the listing text, images, links, or video.
+
+For every numeric limit (max OR min): only fill it if the documentation states an explicit number. If a number is not stated, return null for that field. NEVER guess or invent a number.
+
+DOCUMENTATION CONTENT:
+${content}
+
+Return ONLY valid JSON (no preamble, no code fences):
+{
+  "maxTitle": <number or null>,
+  "minTitle": <number or null>,
+  "maxShortDesc": <number or null>,
+  "minShortDesc": <number or null>,
+  "maxDesc": <number or null>,
+  "minDesc": <number or null>,
+  "maxFeatures": <number or null>,
+  "minFeatures": <number or null>,
+  "maxFeatureLen": <number or null>,
+  "maxTags": <number or null>,
+  "minTags": <number or null>,
+  "tone": "<required writing tone, voice, and point of view for the copy>",
+  "featureRequirements": "<the EXACT required format for each feature entry, quoting the marketplace's own structure - e.g. 'Each feature needs a short name plus a description explaining how customers use it'>",
+  "iconSpec": "<icon dimensions, format, file size, background rules - or empty>",
+  "screenshotSpec": "<screenshot dimensions, count, format, content rules - or empty>",
+  "videoSpec": "<video platform, length, content rules - or empty if not required>",
+  "rules": ["<each LISTING-COPY rule as a clear directive, e.g. 'App name must not contain the word HubSpot or Hub'>"],
+  "nextSteps": ["<each asset or link the person must prepare, e.g. 'Prepare an 800x800px PNG or JPG app icon that fills the frame'>"]
+}`
+
 exports.handler = async function(event, context) {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) }
@@ -16,57 +64,9 @@ exports.handler = async function(event, context) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Name and content are required' }) }
     }
 
-    const now = new Date().toISOString()
-
-    const prompt = `You are a compliance specialist analyzing official app marketplace listing guidelines for "${name}".
-
-Below is the FULL content fetched directly from their official documentation pages. Your job is to extract EVERY SINGLE requirement — nothing can be missed, as developers will rely on this to build compliant listings.
-
-EXTRACT ALL OF THE FOLLOWING WITHOUT EXCEPTION:
-1. Character limits for every field (title, short description, long description, features, tags, etc.)
-2. Feature requirements — do features need a title? A description? An image/screenshot? What are the specs?
-3. Icon requirements — dimensions, format (PNG/SVG/etc.), background rules, file size limits
-4. Screenshot requirements — dimensions, quantity (min/max), format, content restrictions
-5. Video requirements — platform (YouTube/Vimeo), length limits, content rules
-6. Tone and writing style rules — first person vs third person, prohibited phrases, required phrases
-7. Content restrictions — what is NOT allowed in descriptions (HTML, markdown, links, competitor mentions, etc.)
-8. Naming rules — what can/cannot be in the app name, whether "for [Platform]" suffix is required
-9. Pricing and commercial rules — free tier requirements, pricing display rules, trial requirements
-10. Branding rules — trademark usage, logo usage, platform name usage guidelines
-11. Category/tag rules — how many, which are allowed, how to choose
-12. Submission and review process steps — what happens after submitting, review timeline, what gets checked
-13. Post-listing requirements — what must be maintained, update frequency, support requirements
-14. Any recent updates or changes to requirements (changelogs)
-15. Any requirements specific to listing page sections (overview, features, pricing, support, etc.)
-
-DOCUMENTATION CONTENT:
-${fetchedContent}
-
-Return ONLY valid JSON with this exact structure (no preamble, no markdown fences, no commentary):
-{
-  "maxTitle": <number or null if not specified>,
-  "maxShortDesc": <number or null if not specified>,
-  "maxDesc": <number or null if not specified>,
-  "maxFeatures": <number or null if not specified>,
-  "maxFeatureLen": <number or null if not specified>,
-  "maxTags": <number or null if not specified>,
-  "tone": "<describe the exact required writing tone, person (first/third), style, and any specific voice requirements>",
-  "featureRequirements": "<describe exactly what each feature entry must include — title only? title + description? title + description + image? image specs?>",
-  "iconSpec": "<exact icon dimensions, format, file size limit, background color rules, and any other icon requirements>",
-  "screenshotSpec": "<exact screenshot dimensions, min/max quantity, format, content rules, caption requirements>",
-  "videoSpec": "<video platform requirements, length limits, content rules, or 'not required' if not mentioned>",
-  "rules": [
-    "<each rule as a complete, specific, actionable sentence>",
-    "<include every naming rule, content restriction, branding rule, prohibited element, required element>",
-    "<be specific — e.g. 'App name must not exceed 50 characters and must not include the word App' not just 'follow naming rules'>"
-  ],
-  "nextSteps": [
-    "<each submission step as a specific actionable instruction>",
-    "<include every image/asset requirement, review process step, post-listing maintenance requirement>",
-    "<include any recent requirement changes from changelogs>"
-  ],
-  "lastScanned": "${now}"
-}`
+    const trimmedText = fetchedContent.length > 20000
+      ? fetchedContent.substring(0, 20000) + '\n...[truncated]'
+      : fetchedContent
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -77,8 +77,8 @@ Return ONLY valid JSON with this exact structure (no preamble, no markdown fence
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 6000,
-        messages: [{ role: 'user', content: prompt }]
+        max_tokens: 2000,
+        messages: [{ role: 'user', content: LISTING_PROMPT(name, trimmedText) }]
       })
     })
 
@@ -96,6 +96,15 @@ Return ONLY valid JSON with this exact structure (no preamble, no markdown fence
     }
     const guidelines = JSON.parse(jsonMatch[0])
 
+    const finalGuidelines = {
+      ...guidelines,
+      lastScanned: new Date().toISOString(),
+      rules: [
+        'Long description must be plain text only — no HTML, no markdown, no heading tags',
+        ...(guidelines.rules || [])
+      ]
+    }
+
     const id = 'custom_' + Date.now()
     const marketplace = {
       id,
@@ -105,13 +114,7 @@ Return ONLY valid JSON with this exact structure (no preamble, no markdown fence
       icon: name.substring(0, 2).toUpperCase(),
       publishable: false,
       guidelineUrls: urls || [],
-      guidelines: {
-        ...guidelines,
-        rules: [
-          'Long description must be plain text only — no HTML, no markdown, no heading tags',
-          ...(guidelines.rules || [])
-        ]
-      }
+      guidelines: finalGuidelines
     }
 
     let store, existing
