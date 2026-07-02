@@ -19,36 +19,42 @@ exports.handler = async function(event, context) {
 
     if (!mp) return { statusCode: 404, body: JSON.stringify({ error: 'Marketplace not found' }) }
 
-    // Use either pre-fetched content (rescan) or additional content (add URLs)
     const guidelineText = fetchedContent || additionalContent
     if (!guidelineText) return { statusCode: 400, body: JSON.stringify({ error: 'No content provided' }) }
+
+    // Trim content to keep AI response fast — 20000 chars is plenty for extraction
+    const trimmedText = guidelineText.length > 20000
+      ? guidelineText.substring(0, 20000) + '\n...[truncated]'
+      : guidelineText
 
     const now = new Date().toISOString()
     const allUrls = additionalUrls ? [...(mp.guidelineUrls || []), ...additionalUrls] : (mp.guidelineUrls || [])
 
-    const prompt = `You are analyzing official app marketplace listing guidelines for "${mp.name}". Extract EVERY requirement, rule, limit, and specification — including feature formatting, images, videos, icons, naming rules, character limits, submission steps, and anything else needed for a compliant listing.
+    const prompt = `Extract ALL listing requirements from this "${mp.name}" marketplace documentation. Be concise but complete.
 
-DOCUMENTATION CONTENT:
-${guidelineText}
+${trimmedText}
 
 Return ONLY valid JSON (no preamble, no fences):
 {
-  "maxTitle": 50,
-  "maxShortDesc": 200,
-  "maxDesc": 1500,
-  "maxFeatures": 5,
-  "maxFeatureLen": 100,
-  "maxTags": 5,
-  "tone": "appropriate writing tone",
-  "rules": ["every rule as a separate string"],
-  "nextSteps": ["every image spec, video requirement, submission step as a separate string"],
+  "maxTitle": <number or null>,
+  "maxShortDesc": <number or null>,
+  "maxDesc": <number or null>,
+  "maxFeatures": <number or null>,
+  "maxFeatureLen": <number or null>,
+  "maxTags": <number or null>,
+  "tone": "<required writing tone and style>",
+  "featureRequirements": "<what each feature entry must include — title, description, image specs>",
+  "iconSpec": "<icon dimensions, format, file size, background rules>",
+  "screenshotSpec": "<screenshot dimensions, quantity, format, content rules>",
+  "rules": ["<every naming, content, branding, URL, and compliance rule as a separate string>"],
+  "nextSteps": ["<every submission step, image requirement, and post-listing requirement>"],
   "lastScanned": "${now}"
 }`
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 3000, messages: [{ role: 'user', content: prompt }] })
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] })
     })
 
     if (!response.ok) {
@@ -68,7 +74,7 @@ Return ONLY valid JSON (no preamble, no fences):
       guidelineUrls: allUrls,
       guidelines: {
         ...guidelines,
-        rules: ['Long description must be plain text only — no HTML no markdown no heading tags', ...(guidelines.rules || [])]
+        rules: ['Long description must be plain text only — no HTML, no markdown, no heading tags', ...(guidelines.rules || [])]
       }
     }
 
