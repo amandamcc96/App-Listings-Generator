@@ -1,109 +1,23 @@
 const { getStore } = require("@netlify/blobs");
 
-const LISTING_PROMPT = (name, content) => `You are extracting app marketplace LISTING guidelines for "${name}". Your output is used ONLY to write and validate the marketplace listing (the copy, images, links, and assets a customer sees). Nothing else.
-
-INCLUDE only things that change what goes INTO the listing:
-- Character/length limits for listing fields: app name/title, tagline/short description, long description/overview, feature titles and descriptions, tags/keywords. Capture BOTH maximums AND minimums exactly as stated (e.g. "the overview must be at least 160 characters").
-- Minimum required counts (e.g. "provide at least 3 screenshots", "at least 1 feature").
-- Required tone, voice, and point of view for the copy
-- What the description MUST and MUST NOT contain (e.g. plain text only, no HTML/markdown, no competitor names, no unsupported claims, no pricing inside the description)
-- App name / naming rules (prohibited words, forbidden use of the marketplace's brand name)
-- The exact required FORMAT for features/sections (does each feature need a title, a description of how customers use it, an image? how should each be structured?)
-- Image, icon, screenshot, and video specs — exact dimensions, format, count, aspect ratio, content rules
-- Required links and their rules (setup guide, support URL, privacy policy, install/CTA button)
-- Category and tag selection rules
-
-HARD EXCLUDE — never output any of these, even if the documentation is full of them:
-- OAuth versions or endpoints (e.g. /oauth/2026-03/token), API versions, SDKs
-- Developer platform version numbers (e.g. v2025.2, v2026.03), migration deadlines, "supported version" requirements
-- Legacy CRM cards, app cards, UI extensions, uninstall API, install caps, distribution mechanics
-- Security questionnaires, testing credentials, certification/recertification code requirements
-- Anything a developer does in CODE rather than in the listing copy
-IMPORTANT: If a source page is a changelog, release note, or developer update about platform/API/OAuth/migrations, extract NOTHING from it unless it literally changes the listing text, images, links, or video.
-
-For every numeric limit (max OR min): only fill it if the documentation states an explicit number. If a number is not stated, return null for that field. NEVER guess or invent a number.
-
-DOCUMENTATION CONTENT:
-${content}
-
-Return ONLY valid JSON (no preamble, no code fences):
-{
-  "maxTitle": <number or null>,
-  "minTitle": <number or null>,
-  "maxShortDesc": <number or null>,
-  "minShortDesc": <number or null>,
-  "maxDesc": <number or null>,
-  "minDesc": <number or null>,
-  "maxFeatures": <number or null>,
-  "minFeatures": <number or null>,
-  "maxFeatureLen": <number or null>,
-  "maxTags": <number or null>,
-  "minTags": <number or null>,
-  "tone": "<required writing tone, voice, and point of view for the copy>",
-  "featureRequirements": "<the EXACT required format for each feature entry, quoting the marketplace's own structure - e.g. 'Each feature needs a short name plus a description explaining how customers use it'>",
-  "iconSpec": "<icon dimensions, format, file size, background rules - or empty>",
-  "screenshotSpec": "<screenshot dimensions, count, format, content rules - or empty>",
-  "videoSpec": "<video platform, length, content rules - or empty if not required>",
-  "rules": ["<each LISTING-COPY rule as a clear directive, e.g. 'App name must not contain the word HubSpot or Hub'>"],
-  "nextSteps": ["<each asset or link the person must prepare, e.g. 'Prepare an 800x800px PNG or JPG app icon that fills the frame'>"]
-}`
+// Save-only: the browser has already extracted + merged guidelines from each URL.
+// No AI call here, so this always returns fast (no timeout).
 
 exports.handler = async function(event, context) {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) }
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'API key not configured' }) }
-  }
-
   try {
-    const { name, urls, fetchedContent } = JSON.parse(event.body)
-    if (!name || !fetchedContent) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Name and content are required' }) }
+    const { name, urls, guidelines } = JSON.parse(event.body)
+    if (!name || !guidelines) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'Name and guidelines are required' }) }
     }
 
-    const trimmedText = fetchedContent.length > 20000
-      ? fetchedContent.substring(0, 20000) + '\n...[truncated]'
-      : fetchedContent
+    const plainTextRule = 'Long description must be plain text only — no HTML, no markdown, no heading tags'
+    const rules = [plainTextRule, ...((guidelines.rules || []).filter(r => r && r.trim().toLowerCase() !== plainTextRule.toLowerCase()))]
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
-        messages: [{ role: 'user', content: LISTING_PROMPT(name, trimmedText) }]
-      })
-    })
-
-    if (!response.ok) {
-      const err = await response.json()
-      return { statusCode: response.status, body: JSON.stringify({ error: err.error?.message || 'AI extraction failed' }) }
-    }
-
-    const data = await response.json()
-    const text = data.content.map(i => i.text || '').join('')
-    let clean = text.replace(/```json|```/g, '').trim()
-    const jsonMatch = clean.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
-      return { statusCode: 500, body: JSON.stringify({ error: 'AI did not return valid JSON' }) }
-    }
-    const guidelines = JSON.parse(jsonMatch[0])
-
-    const finalGuidelines = {
-      ...guidelines,
-      lastScanned: new Date().toISOString(),
-      rules: [
-        'Long description must be plain text only — no HTML, no markdown, no heading tags',
-        ...(guidelines.rules || [])
-      ]
-    }
+    const finalGuidelines = { ...guidelines, rules, lastScanned: new Date().toISOString() }
 
     const id = 'custom_' + Date.now()
     const marketplace = {
@@ -117,13 +31,12 @@ exports.handler = async function(event, context) {
       guidelines: finalGuidelines
     }
 
-    let store, existing
+    const store = getStore({ name: "custom-marketplaces", siteID: process.env.SITE_ID, token: process.env.NETLIFY_TOKEN, consistency: "strong" })
+    let existing
     try {
-      store = getStore({ name: "custom-marketplaces", siteID: process.env.SITE_ID, token: process.env.NETLIFY_TOKEN, consistency: "strong" })
       existing = await store.get("list", { type: "json" }) || []
     } catch (blobErr) {
       existing = []
-      store = getStore({ name: "custom-marketplaces", siteID: process.env.SITE_ID, token: process.env.NETLIFY_TOKEN, consistency: "strong" })
     }
 
     try {
@@ -133,11 +46,7 @@ exports.handler = async function(event, context) {
       return { statusCode: 500, body: JSON.stringify({ error: 'Failed to save marketplace: ' + blobErr.message }) }
     }
 
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(marketplace)
-    }
+    return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(marketplace) }
   } catch (err) {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) }
   }

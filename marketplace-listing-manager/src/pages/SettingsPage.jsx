@@ -1,24 +1,19 @@
 import { useState } from 'react'
 import { Trash2, RefreshCw, ExternalLink, Loader, Plus, X } from 'lucide-react'
+import { mergeGuidelineFragments, fetchPage, extractPage } from '../components/AddMarketplaceModal'
 
-const fetchUrlContent = async (url, onStatus, index, total) => {
-  if (onStatus) onStatus(`Fetching page ${index + 1} of ${total}...`)
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 15000)
-    const jinaUrl = `https://r.jina.ai/${url}`
-    const resp = await fetch(jinaUrl, {
-      headers: { 'Accept': 'text/plain' },
-      signal: controller.signal
-    })
-    clearTimeout(timeout)
-    if (!resp.ok) return null
-    let text = await resp.text()
-    if (text.length > 8000) text = text.substring(0, 8000) + '...'
-    return text.length > 100 ? text : null
-  } catch (e) {
-    return null
+// Read + extract a list of URLs one page at a time, reporting progress. Returns merged guidelines.
+async function scanUrls(name, urlList, onStatus) {
+  const fragments = []
+  for (let i = 0; i < urlList.length; i++) {
+    if (onStatus) onStatus(`Reading page ${i + 1} of ${urlList.length}...`)
+    const content = await fetchPage(urlList[i])
+    if (!content) continue
+    if (onStatus) onStatus(`Analyzing page ${i + 1} of ${urlList.length}...`)
+    const frag = await extractPage(name, content)
+    if (frag) fragments.push(frag)
   }
+  return { merged: mergeGuidelineFragments(fragments), count: fragments.length }
 }
 
 function AddUrlModal({ marketplace, onClose, onSaved }) {
@@ -39,26 +34,15 @@ function AddUrlModal({ marketplace, onClose, onSaved }) {
     setScanning(true)
 
     try {
-      // Fetch URLs sequentially with timeout
-      const contents = []
-      for (let i = 0; i < validUrls.length; i++) {
-        const content = await fetchUrlContent(validUrls[i], setStatus, i, validUrls.length)
-        if (content) contents.push(`[Source: ${validUrls[i]}]\n${content}`)
-      }
+      const { merged, count } = await scanUrls(marketplace.name, validUrls, setStatus)
+      if (count === 0) throw new Error('Could not read the provided URLs.')
 
-      if (contents.length === 0) throw new Error('Could not fetch content from the provided URLs.')
-
-      setStatus('Rescanning all guidelines with AI... (this may take 20–30 seconds)')
+      setStatus('Saving...')
       const resp = await fetch('/.netlify/functions/rescan-single', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: marketplace.id,
-          additionalUrls: validUrls,
-          additionalContent: contents.join('\n\n---\n\n')
-        })
+        body: JSON.stringify({ id: marketplace.id, additionalUrls: validUrls, guidelines: merged })
       })
-
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: 'Server error' }))
         throw new Error(err.error || 'Failed to update')
@@ -129,20 +113,13 @@ function MarketplaceRow({ marketplace, onDelete, onRescan, onUrlsAdded }) {
     setRescanning(true)
     try {
       const guidelineUrls = marketplace.guidelineUrls || []
-      const contents = []
-      for (let i = 0; i < guidelineUrls.length; i++) {
-        const content = await fetchUrlContent(guidelineUrls[i], setRescanStatus, i, guidelineUrls.length)
-        if (content) contents.push(`[Source: ${guidelineUrls[i]}]\n${content}`)
-      }
+      const { merged } = await scanUrls(marketplace.name, guidelineUrls, setRescanStatus)
 
-      setRescanStatus('Analyzing with AI... (this may take 20–30 seconds)')
+      setRescanStatus('Saving...')
       const resp = await fetch('/.netlify/functions/rescan-single', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: marketplace.id,
-          fetchedContent: contents.join('\n\n---\n\n')
-        })
+        body: JSON.stringify({ id: marketplace.id, guidelines: merged })
       })
 
       if (!resp.ok) {
@@ -210,10 +187,10 @@ function MarketplaceRow({ marketplace, onDelete, onRescan, onUrlsAdded }) {
               </div>
             ))}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-              <span className="badge badge-purple" style={{ fontSize: 10 }}>Title: {marketplace.guidelines?.maxTitle || '?'}</span>
-              <span className="badge badge-purple" style={{ fontSize: 10 }}>Short: {marketplace.guidelines?.maxShortDesc || '?'}</span>
-              <span className="badge badge-purple" style={{ fontSize: 10 }}>Long: {marketplace.guidelines?.maxDesc || '?'}</span>
-              <span className="badge badge-purple" style={{ fontSize: 10 }}>Features: {marketplace.guidelines?.maxFeatures || '?'}</span>
+              <span className="badge badge-purple" style={{ fontSize: 10 }}>Title: {marketplace.guidelines?.maxTitle || (marketplace.guidelines?.minTitle ? 'min ' + marketplace.guidelines.minTitle : '—')}</span>
+              <span className="badge badge-purple" style={{ fontSize: 10 }}>Short: {marketplace.guidelines?.maxShortDesc || (marketplace.guidelines?.minShortDesc ? 'min ' + marketplace.guidelines.minShortDesc : '—')}</span>
+              <span className="badge badge-purple" style={{ fontSize: 10 }}>Long: {marketplace.guidelines?.maxDesc || (marketplace.guidelines?.minDesc ? 'min ' + marketplace.guidelines.minDesc : '—')}</span>
+              <span className="badge badge-purple" style={{ fontSize: 10 }}>Features: {marketplace.guidelines?.maxFeatures || (marketplace.guidelines?.minFeatures ? 'min ' + marketplace.guidelines.minFeatures : '—')}</span>
             </div>
             {marketplace.guidelines?.rules && (
               <>
