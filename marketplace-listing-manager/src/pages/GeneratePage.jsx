@@ -5,6 +5,19 @@ const ERPS = ["AFAS Software","Abas","AccountsIQ","Acumatica","Agility ERP","App
 
 const CRMS_APPS = ["1WorldSync","ActiveCampaign","Adobe Campaign","Adobe Commerce","Adobe Experience Manager","Adobe Marketo Engage","Advyzon","Agentforce Field Service and Operations","Amazon Seller Central","Amazon Vendor Central","Anaplan","Applied Indio","Apptivo","Aspire","Autotask PSA","Benelinx","BigChange","BigCommerce","Blackbaud CRM","Briostack","CINC Systems","ClickUp","Clio","Close CRM","ConnectWise","Copper","Cotality DASH","Coupa","Creatio","Cybersource","DocuWare","eBay","eClinicalWorks","Expensify","FedEx Ship Manager","Finale Inventory","Fishbowl","Flex Inventory Management","Freshworks Freshdesk","Freshworks Freshsales","Fullbay","Genesys","GiveCampus","GoHighLevel","Housecall Pro","HubSpot Marketing Hub","HubSpot Sales Hub","HubSpot Service Hub","Hubspot","Infor CloudSuite","Insightly","Inventory Planner by Sage","Jobber","Kantata","Katana","Keap","Klaviyo","Mews","Microsoft Dataverse","Microsoft Dynamics 365","Microsoft Dynamics 365 Field Service","Microsoft SharePoint","Microsoft SQL Server","Mitchell RepairCenter","Mixpanel","NCR Voyix","Neon One","NetHunt","NetSuite SuiteCommerce","NuORDER by Lightspeed","OPEX Cortex","OneAdvanced","Ontraport","OptimoRoute","PatronManager","Pipedrive","Point of Rental","PTC ServiceMax","Quickbase","ROLLER","Recurly","Replicon","Rev.io","RingCentral","Rolldog","SAP Commerce Cloud","SAP CRM","SPS Commerce","Sage CRM","Sage Estimating","Sage Fixed Assets","Sage HR","Sage Inventory Advisor","Sage Network","Sage Payroll","Sage People","Sage Timeslips","Sage Workplace","Salesforce","Salesforce Commerce Cloud","Salesforce Data 360","Salesforce Sales Cloud","Salesforce Service Cloud","Salesloft","SecturaFAB","Sellsy","ServiceNow","ServiceTitan","ShipStation","Shopify","Shopware","Smartlead","Smartsheet","Squarespace","Stack Internal","Stella Source","Stripe","SugarCRM","SuiteCRM","Trimble Supplier Xchange","Tripleseat","TrueCommerce Nexternal","UKG Pro","UPS","Veeva","Voyado","Walmart Marketplace","Wayfair","Wealthbox","Wix","WizCommerce","WooCommerce","Wrike","Xactly","Zendesk","Zoho","Zoho Analytics","Zoho CRM","Zoho Desk","Zoho Expense","Zoho Field Service Management","Zoho Inventory","Zoom Contact Center","Zoominfo","Zuora","Zuper","inFlow","isolved","monday.com"]
 
+// Guarantee a string fits within max chars, cutting at a sentence boundary when possible, else a word boundary
+function fitText(text, max) {
+  if (!text || typeof max !== 'number' || max <= 0 || text.length <= max) return { text, trimmed: false }
+  let slice = text.slice(0, max)
+  const boundary = Math.max(slice.lastIndexOf('. '), slice.lastIndexOf('.\n'), slice.lastIndexOf('! '), slice.lastIndexOf('? '))
+  if (boundary > max * 0.6) {
+    return { text: slice.slice(0, boundary + 1).trim(), trimmed: true }
+  }
+  const lastSpace = slice.lastIndexOf(' ')
+  if (lastSpace > 0) slice = slice.slice(0, lastSpace)
+  return { text: slice.trim(), trimmed: true }
+}
+
 function SystemPicker({ type, selected, onToggle, noSystem, onToggleNone }) {
   const [search, setSearch] = useState('')
   const items = type === 'erp' ? ERPS : CRMS_APPS
@@ -40,6 +53,10 @@ function SystemPicker({ type, selected, onToggle, noSystem, onToggleNone }) {
 }
 
 function LimitPill({ label, current, max }) {
+  // Null-safe: when a marketplace has no limit for this field, show the count without a ceiling
+  if (typeof max !== 'number' || max <= 0) {
+    return <span className="badge badge-green" style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{label}: {current}</span>
+  }
   const pct = current / max
   const cls = pct > 1 ? 'badge-red' : pct > 0.85 ? 'badge-amber' : 'badge-green'
   return <span className={`badge ${cls}`} style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{label}: {current}/{max}</span>
@@ -180,8 +197,29 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
         setProgress(`Generating ${pair.label} \u00D7 ${mp.name}\u2026 (${done}/${total})`)
         const key = `${pair.label}||${mp.id}`
         try {
-          const g = mp.guidelines
+          const g = mp.guidelines || {}
           const sysLine = pair.erp && pair.crm ? `connecting ${pair.erp} (ERP) to ${pair.crm}` : pair.erp ? `for ${pair.erp} ERP users` : pair.crm ? `connecting to ${pair.crm}` : 'as a standalone integration'
+
+          // Null-safe limits: only enforce a hard number when the marketplace actually specifies one
+          const num = (v) => (typeof v === 'number' && v > 0) ? v : null
+          const tMax = num(g.maxTitle), sMax = num(g.maxShortDesc), lMax = num(g.maxDesc)
+          const fMax = num(g.maxFeatures), flMax = num(g.maxFeatureLen), tagMax = num(g.maxTags)
+
+          const guidelineLines = [
+            tMax ? `- Title: STRICTLY max ${tMax} characters. Count every character carefully. Do not use colons or semicolons in the title.`
+                 : `- Title: keep it concise (around 30-50 characters). Do not use colons or semicolons in the title.`,
+            sMax ? `- Short description: STRICTLY max ${sMax} characters. Count every character carefully.`
+                 : `- Short description: keep it to roughly one clear sentence.`,
+            lMax ? `- Long description: STRICTLY max ${lMax} characters. This is the HARD LIMIT. Do NOT exceed it.`
+                 : `- Long description: a few short paragraphs. Do not pad or repeat.`,
+            fMax ? `- Features: max ${fMax}${flMax ? `, each STRICTLY max ${flMax} characters` : ''}`
+                 : (flMax ? `- Features: each STRICTLY max ${flMax} characters` : `- Features: 3-5 concise items`),
+            tagMax ? `- Tags: max ${tagMax}` : `- Tags: a few relevant keywords`,
+            `- Tone: ${g.tone || 'factual and descriptive'}`,
+            g.featureRequirements ? `- Feature format: ${g.featureRequirements}` : '',
+            `- Rules: ${(g.rules || []).join(' | ')}`
+          ].filter(Boolean).join('\n')
+
           const prompt = `You are an expert app marketplace copywriter for Commercient, specialists in ERP/CRM integration software.
 
 Generate a fully compliant listing for "${appName}" ${sysLine}, for the ${mp.name} marketplace.
@@ -195,13 +233,7 @@ ${pair.crm ? `- CRM/App: ${pair.crm}` : ''}
 - Company: Commercient
 
 ${mp.name.toUpperCase()} GUIDELINES:
-- Title: STRICTLY max ${g.maxTitle} characters. Count every character carefully. Do not use colons or semicolons in the title.
-- Short description: STRICTLY max ${g.maxShortDesc} characters. Count every character carefully.
-- Long description: STRICTLY max ${g.maxDesc} characters. Count every character carefully. This is the HARD LIMIT. Do NOT exceed it.
-- Features: max ${g.maxFeatures}, each STRICTLY max ${g.maxFeatureLen} characters
-- Tags: max ${g.maxTags}
-- Tone: ${g.tone}
-- Rules: ${g.rules.join(' | ')}
+${guidelineLines}
 
 CRITICAL FORMATTING RULES:
 - ALL text must be PLAIN TEXT ONLY.
@@ -209,9 +241,9 @@ CRITICAL FORMATTING RULES:
 - Do NOT use any markdown formatting (no #, ##, **, *, -, etc.)
 - Do NOT use any special formatting characters or heading syntax.
 - Write the long description as natural flowing paragraphs separated by blank lines.
-- The long description MUST be under ${g.maxDesc} characters. Count carefully. If approaching the limit, write less.
-- The title MUST be under ${g.maxTitle} characters and must NOT contain colons or semicolons.
-- The short description MUST be under ${g.maxShortDesc} characters.
+${lMax ? `- The long description MUST be under ${lMax} characters. Count carefully. If approaching the limit, write less.` : ''}
+${tMax ? `- The title MUST be under ${tMax} characters and must NOT contain colons or semicolons.` : `- The title must NOT contain colons or semicolons.`}
+${sMax ? `- The short description MUST be under ${sMax} characters.` : ''}
 
 TONE AND LANGUAGE RULES:
 - Do NOT use any sales or marketing language.
@@ -240,6 +272,35 @@ Use your knowledge of both platforms to write an accurate factual listing. Retur
           if (data.title) {
             data.title = data.title.replace(/<[^>]*>/g, '').trim()
           }
+
+          // Enforce marketplace limits so every listing is guaranteed to fit before it's shown
+          const notes = Array.isArray(data.complianceNotes) ? [...data.complianceNotes] : []
+
+          const t = fitText(data.title, tMax); data.title = t.text
+          if (t.trimmed) notes.push(`Title auto-trimmed to fit the ${tMax}-character limit.`)
+
+          const s = fitText(data.shortDescription, sMax); data.shortDescription = s.text
+          if (s.trimmed) notes.push(`Short description auto-trimmed to fit the ${sMax}-character limit.`)
+
+          const l = fitText(data.longDescription, lMax); data.longDescription = l.text
+          if (l.trimmed) notes.push(`Long description auto-trimmed to fit the ${lMax}-character limit.`)
+
+          if (Array.isArray(data.features)) {
+            // Trim each feature to its length limit, then cap the number of features
+            let feats = data.features.map(f => fitText(f, flMax).text)
+            if (fMax && feats.length > fMax) {
+              feats = feats.slice(0, fMax)
+              notes.push(`Trimmed to the ${fMax} allowed features.`)
+            }
+            data.features = feats
+          }
+
+          if (tagMax && Array.isArray(data.tags) && data.tags.length > tagMax) {
+            data.tags = data.tags.slice(0, tagMax)
+            notes.push(`Trimmed to the ${tagMax} allowed tags.`)
+          }
+
+          data.complianceNotes = notes
 
           newResults[key] = data
           setGeneratedResults({ ...newResults })
