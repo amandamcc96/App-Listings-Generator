@@ -1,6 +1,26 @@
 import { useState } from 'react'
 import { Trash2, RefreshCw, ExternalLink, Loader, Plus, X } from 'lucide-react'
 
+const fetchUrlContent = async (url, onStatus, index, total) => {
+  if (onStatus) onStatus(`Fetching page ${index + 1} of ${total}...`)
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15000)
+    const jinaUrl = `https://r.jina.ai/${url}`
+    const resp = await fetch(jinaUrl, {
+      headers: { 'Accept': 'text/plain' },
+      signal: controller.signal
+    })
+    clearTimeout(timeout)
+    if (!resp.ok) return null
+    let text = await resp.text()
+    if (text.length > 8000) text = text.substring(0, 8000) + '...'
+    return text.length > 100 ? text : null
+  } catch (e) {
+    return null
+  }
+}
+
 function AddUrlModal({ marketplace, onClose, onSaved }) {
   const [urls, setUrls] = useState([''])
   const [scanning, setScanning] = useState(false)
@@ -11,17 +31,6 @@ function AddUrlModal({ marketplace, onClose, onSaved }) {
   const removeUrl = (i) => setUrls(u => u.filter((_, idx) => idx !== i))
   const updateUrl = (i, val) => setUrls(u => u.map((v, idx) => idx === i ? val : v))
 
-  const fetchUrlContent = async (url) => {
-    try {
-      const jinaUrl = `https://r.jina.ai/${url}`
-      const resp = await fetch(jinaUrl, { headers: { 'Accept': 'text/plain' } })
-      if (!resp.ok) return null
-      let text = await resp.text()
-      if (text.length > 4000) text = text.substring(0, 4000) + '...'
-      return text.length > 100 ? text : null
-    } catch (e) { return null }
-  }
-
   const handleSave = async () => {
     const validUrls = urls.map(u => u.trim()).filter(u => u.startsWith('http'))
     if (validUrls.length === 0) { setError('Please add at least one valid URL.'); return }
@@ -30,20 +39,24 @@ function AddUrlModal({ marketplace, onClose, onSaved }) {
     setScanning(true)
 
     try {
-      setStatus('Fetching guideline pages...')
-      const contentResults = await Promise.all(validUrls.map(fetchUrlContent))
-      const allUrls = [...(marketplace.guidelineUrls || []), ...validUrls]
-      const contents = contentResults
-        .map((content, i) => content ? `[Source: ${validUrls[i]}]\n${content}` : null)
-        .filter(Boolean)
+      // Fetch URLs sequentially with timeout
+      const contents = []
+      for (let i = 0; i < validUrls.length; i++) {
+        const content = await fetchUrlContent(validUrls[i], setStatus, i, validUrls.length)
+        if (content) contents.push(`[Source: ${validUrls[i]}]\n${content}`)
+      }
 
       if (contents.length === 0) throw new Error('Could not fetch content from the provided URLs.')
 
-      setStatus('Rescanning all guidelines with AI...')
+      setStatus('Rescanning all guidelines with AI... (this may take 20–30 seconds)')
       const resp = await fetch('/.netlify/functions/rescan-single', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: marketplace.id, additionalUrls: validUrls, additionalContent: contents.join('\n\n---\n\n') })
+        body: JSON.stringify({
+          id: marketplace.id,
+          additionalUrls: validUrls,
+          additionalContent: contents.join('\n\n---\n\n')
+        })
       })
 
       if (!resp.ok) {
@@ -107,6 +120,7 @@ function AddUrlModal({ marketplace, onClose, onSaved }) {
 
 function MarketplaceRow({ marketplace, onDelete, onRescan, onUrlsAdded }) {
   const [rescanning, setRescanning] = useState(false)
+  const [rescanStatus, setRescanStatus] = useState('')
   const [expanded, setExpanded] = useState(false)
   const [showAddUrls, setShowAddUrls] = useState(false)
   const lastScanned = marketplace.guidelines?.lastScanned
@@ -114,24 +128,23 @@ function MarketplaceRow({ marketplace, onDelete, onRescan, onUrlsAdded }) {
   const handleRescan = async () => {
     setRescanning(true)
     try {
-      // Fetch all existing URLs in browser first
+      const guidelineUrls = marketplace.guidelineUrls || []
       const contents = []
-      for (const url of (marketplace.guidelineUrls || [])) {
-        try {
-          const resp = await fetch(`https://r.jina.ai/${url}`, { headers: { 'Accept': 'text/plain' } })
-          if (resp.ok) {
-            let text = await resp.text()
-            if (text.length > 4000) text = text.substring(0, 4000) + '...'
-            if (text.length > 100) contents.push(`[Source: ${url}]\n${text}`)
-          }
-        } catch (e) {}
+      for (let i = 0; i < guidelineUrls.length; i++) {
+        const content = await fetchUrlContent(guidelineUrls[i], setRescanStatus, i, guidelineUrls.length)
+        if (content) contents.push(`[Source: ${guidelineUrls[i]}]\n${content}`)
       }
 
+      setRescanStatus('Analyzing with AI... (this may take 20–30 seconds)')
       const resp = await fetch('/.netlify/functions/rescan-single', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: marketplace.id, fetchedContent: contents.join('\n\n---\n\n') })
+        body: JSON.stringify({
+          id: marketplace.id,
+          fetchedContent: contents.join('\n\n---\n\n')
+        })
       })
+
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: 'Unknown error' }))
         alert('Rescan failed: ' + (err.error || 'Unknown error'))
@@ -143,6 +156,7 @@ function MarketplaceRow({ marketplace, onDelete, onRescan, onUrlsAdded }) {
       alert('Rescan failed: ' + e.message)
     } finally {
       setRescanning(false)
+      setRescanStatus('')
     }
   }
 
@@ -178,6 +192,12 @@ function MarketplaceRow({ marketplace, onDelete, onRescan, onUrlsAdded }) {
             </button>
           </div>
         </div>
+
+        {rescanning && rescanStatus && (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Loader size={11} style={{ animation: 'spin 0.65s linear infinite' }} /> {rescanStatus}
+          </div>
+        )}
 
         {expanded && (
           <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--bg-surface)', borderRadius: 'var(--radius)', fontSize: 12 }}>
