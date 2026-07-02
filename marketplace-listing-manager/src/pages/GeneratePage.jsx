@@ -152,7 +152,7 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
   const [selCrms, setSelCrms] = useState(new Set())
   const [noErp, setNoErp] = useState(false)
   const [noCrm, setNoCrm] = useState(false)
-  const [selMps, setSelMps] = useState(new Set(['hubspot', 'salesforce']))
+  const [selMps, setSelMps] = useState(new Set())
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState('')
 
@@ -188,12 +188,12 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
     if (!appName.trim()) { alert('Please enter an app name.'); return }
     if (!appDesc.trim()) { alert('Please enter a one-line description.'); return }
     if (!currentPairs.length) { alert('Select at least one ERP or CRM/App, or check standalone.'); return }
-    if (!selMps.size) { alert('Select at least one marketplace.'); return }
+    const mps = marketplaces.filter(m => selMps.has(m.id))
+    if (!mps.length) { alert('Select at least one marketplace.'); return }
 
     setGenerating(true)
     setTab('output')
     const newResults = { ...generatedResults }
-    const mps = marketplaces.filter(m => selMps.has(m.id))
     const total = currentPairs.length * mps.length
     let done = 0
 
@@ -284,9 +284,12 @@ Use your knowledge of both platforms to write an accurate factual listing. Retur
           const resp = await fetch('/.netlify/functions/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt, guidelineUrls: mp.guidelineUrls || [] })
+            body: JSON.stringify({ prompt })
           })
-          if (!resp.ok) { const err = await resp.json(); throw new Error(err.error || 'Server error') }
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ error: `Server error (${resp.status})` }))
+            throw new Error(err.error || `Server error (${resp.status})`)
+          }
           const data = await resp.json()
 
           if (data.longDescription) {
