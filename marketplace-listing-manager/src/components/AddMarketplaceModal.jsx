@@ -12,16 +12,24 @@ export default function AddMarketplaceModal({ onSave, onClose }) {
   const removeUrl = (i) => setUrls(u => u.filter((_, idx) => idx !== i))
   const updateUrl = (i, val) => setUrls(u => u.map((v, idx) => idx === i ? val : v))
 
-  const fetchUrlContent = async (url) => {
+  const fetchUrlContent = async (url, index, total) => {
+    setStatus(`Fetching page ${index + 1} of ${total}...`)
     try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 15000) // 15s timeout per URL
       const jinaUrl = `https://r.jina.ai/${url}`
-      const resp = await fetch(jinaUrl, { headers: { 'Accept': 'text/plain' } })
+      const resp = await fetch(jinaUrl, {
+        headers: { 'Accept': 'text/plain' },
+        signal: controller.signal
+      })
+      clearTimeout(timeout)
       if (!resp.ok) return null
       let text = await resp.text()
-      // Keep to 4000 chars per URL so multiple URLs don't exceed AI limits
-      if (text.length > 4000) text = text.substring(0, 4000) + '...'
+      if (text.length > 8000) text = text.substring(0, 8000) + '...'
       return text.length > 100 ? text : null
-    } catch (e) { return null }
+    } catch (e) {
+      return null // skip failed/timed-out URLs silently
+    }
   }
 
   const handleScan = async () => {
@@ -34,18 +42,20 @@ export default function AddMarketplaceModal({ onSave, onClose }) {
     setScanning(true)
 
     try {
-      // Fetch all URLs in the browser in parallel (faster, no server timeout)
-      setStatus(`Fetching ${validUrls.length} guideline page${validUrls.length > 1 ? 's' : ''}...`)
-      const contentResults = await Promise.all(validUrls.map(fetchUrlContent))
-      const contents = contentResults
-        .map((content, i) => content ? `[Source: ${validUrls[i]}]\n${content}` : null)
-        .filter(Boolean)
+      // Fetch URLs sequentially to avoid overwhelming the browser
+      const contents = []
+      for (let i = 0; i < validUrls.length; i++) {
+        const content = await fetchUrlContent(validUrls[i], i, validUrls.length)
+        if (content) {
+          contents.push(`[Source: ${validUrls[i]}]\n${content}`)
+        }
+      }
 
       if (contents.length === 0) {
         throw new Error('Could not fetch content from any of the provided URLs. Make sure they are correct and publicly accessible.')
       }
 
-      setStatus('Analyzing guidelines with AI...')
+      setStatus(`Analyzing guidelines with AI... (this may take 20–30 seconds)`)
       const resp = await fetch('/.netlify/functions/scan-guidelines', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
