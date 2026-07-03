@@ -1,13 +1,32 @@
 import { useState } from 'react'
 import { Trash2, Download, Upload, ChevronDown, ChevronUp, Copy, Check } from 'lucide-react'
 
+// Features may be plain strings, or {name, description} objects from older saves — render both safely
+function featureToString(f) {
+  if (!f) return ''
+  if (typeof f === 'string') return f
+  if (typeof f === 'object') {
+    const name = f.name || f.title || ''
+    const desc = f.description || f.detail || ''
+    if (name && desc) return `${name}: ${desc}`
+    return name || desc || ''
+  }
+  return String(f)
+}
+
 function SavedListingCard({ entry, onDelete }) {
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   const listing = entry.listing
 
+  const featuresDisplay = (listing.features || []).map(featureToString).filter(Boolean)
+  const additionalSections = listing.additionalSections || []
+
   const copyAll = () => {
-    const text = `MARKETPLACE: ${entry.marketplaceName}\n\nTITLE:\n${listing.title}\n\nSHORT DESCRIPTION:\n${listing.shortDescription}\n\nLONG DESCRIPTION:\n${listing.longDescription}\n\nFEATURES:\n${(listing.features || []).map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nTAGS:\n${(listing.tags || []).join(', ')}`
+    let text = `MARKETPLACE: ${entry.marketplaceName}\n\nTITLE:\n${listing.title}\n\nSHORT DESCRIPTION:\n${listing.shortDescription}\n\nLONG DESCRIPTION:\n${listing.longDescription}\n\nFEATURES:\n${featuresDisplay.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nTAGS:\n${(listing.tags || []).join(', ')}`
+    for (const sec of additionalSections) {
+      if (sec && sec.label) text += `\n\n${sec.label.toUpperCase()}:\n${sec.content || ''}`
+    }
     navigator.clipboard.writeText(text).catch(() => {})
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
@@ -54,12 +73,20 @@ function SavedListingCard({ entry, onDelete }) {
           </div>
           <div className="form-group">
             <label>Features</label>
-            <textarea value={(listing.features || []).join('\n')} readOnly style={{ minHeight: 80, background: 'var(--bg)', cursor: 'default' }} />
+            <textarea value={featuresDisplay.join('\n')} readOnly style={{ minHeight: 80, background: 'var(--bg)', cursor: 'default' }} />
           </div>
           <div className="form-group">
             <label>Tags</label>
             <input value={(listing.tags || []).join(', ')} readOnly style={{ background: 'var(--bg)', cursor: 'default' }} />
           </div>
+          {additionalSections.map((sec, i) => (
+            sec && sec.label ? (
+              <div key={i} className="form-group">
+                <label>{sec.label}</label>
+                <textarea value={sec.content || ''} readOnly style={{ minHeight: 80, background: 'var(--bg)', cursor: 'default' }} />
+              </div>
+            ) : null
+          ))}
         </div>
       )}
     </div>

@@ -13,6 +13,7 @@ exports.handler = async function(event, context) {
         body: JSON.stringify(list)
       }
     } catch (err) {
+      // A brand-new store has no "list" key yet — treat as empty
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -24,9 +25,14 @@ exports.handler = async function(event, context) {
   // DELETE — remove a marketplace by id
   if (event.httpMethod === 'DELETE') {
     try {
-      const { id } = JSON.parse(event.body)
+      const { id } = JSON.parse(event.body || '{}')
+      if (!id) return { statusCode: 400, body: JSON.stringify({ error: 'id is required' }) }
+
       const list = await store.get("list", { type: "json" }) || []
       const updated = list.filter(m => m.id !== id)
+      if (updated.length === list.length) {
+        return { statusCode: 404, body: JSON.stringify({ error: 'Marketplace not found' }) }
+      }
       await store.setJSON("list", updated)
       return {
         statusCode: 200,
