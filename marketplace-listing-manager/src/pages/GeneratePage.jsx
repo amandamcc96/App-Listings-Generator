@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Sparkles, Copy, Check, ChevronDown, ChevronUp, AlertTriangle, Save, Image, CheckCircle, Trash2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Sparkles, Copy, Check, ChevronDown, ChevronUp, AlertTriangle, Save, Image, CheckCircle, Trash2, RefreshCw, XCircle } from 'lucide-react'
 
 const ERPS = ["AFAS Software","Abas","AccountsIQ","Acumatica","Agility ERP","Applied Epic","Aptean Apparel ERP Full Circle Edition","Aptean Discrete Manufacturing ERP Made2Manage Edition","Aptean Distribution ERP","Aptean Distribution ERP SWORDS Edition","Aptean Encompix ERP","Aptean Equipment ERP","Aptean Impress ERP","Aptean Industrial Manufacturing ERP Intuitive Edition","Aptean Industrial Manufacturing ERP Traverse Edition","Aptean Industrial Manufacturing ERP WorkWise Edition","Aptean Priam","Aptean Process Manufacturing ERP, Ross Edition","Aptean Southware","Arca EVOLUTION","BILL","CCH Axcess","Cegid","Cegid Quadra","Cegid Retail","Cin7","Comarch ERP Optima","Cyncly RFMS ERP","DELMIAWorks","Datacor","Deltek Ajera","Deltek Costpoint","Deltek GovWin IQ","Deltek Vantagepoint","Deltek Vision","Divalto ERP","ECI Deacom","ECI Horizon","ECI JobBOSS\u00B2","ECI M1","ECI Macola","ECI RockSolid MAX","ECI Spruce","ECI Trimergo","Epicor 10","Epicor 9","Epicor BisTrack","Epicor Eclipse","Epicor Kinetic","Epicor Prophet 21","Exact Globe+","Exact JobBOSS","Exact MAX","Exact Macola","Exact Synergy","Famous ERP","Forterro","Forterro Orderwise","Foundation Software","Genius ERP","Global Shop Solutions","IFS","Infor Anael","Infor Distribution A+","Infor Distribution FACTS","Infor Distribution SX.e","Infor LN","Infor LX","Infor M3","Infor SyteLine","Infor VISUAL","Infor XA","JD Power","Jeeves ERP","Koble","Koble EBMS","Lawson","M2M ERP","MYOB","MYOB Business AccountRight Plus","MYOB Exo","MYOB Greentree","Microsoft Dynamics 365","Microsoft Dynamics 365 Business Central","Microsoft Dynamics 365 for Finance and Operations","Microsoft Dynamics AX","Microsoft Dynamics GP","Odoo","Oracle JD Edwards EnterpriseOne","Oracle NetSuite","Outplay","Pentagon 2000SQL","Plex","Print ePS Monarch","Priority","ProcessPro","Procore","Produce Pro Software","Pronto Software","QAD","QuickBooks Desktop","QuickBooks Online","SAP","SAP Ariba","SAP Business ByDesign","SAP Business One (B1)","SAP ECC6","SPINP ERP","Sage 100","Sage 100 Contractor","Sage 200","Sage 200 Evolution","Sage 300","Sage 300 Construction and Real Estate","Sage 50","Sage 500","Sage Accounting","Sage Active","Sage BusinessWorks","Sage Intacct","Sage Line 500","Sage X3","SelectLine","ShopWorks","Syspro","Trimble Spectrum","VAI S2K Enterprise","Vision ERP","Visma","Workday","Xero","Zoho Books","Zucchetti","e-conomic","eSOLVER"]
 
@@ -16,6 +16,25 @@ function fitText(text, max) {
   const lastSpace = slice.lastIndexOf(' ')
   if (lastSpace > 0) slice = slice.slice(0, lastSpace)
   return { text: slice.trim(), trimmed: true }
+}
+
+// Normalize a feature to a display string. The AI may return plain strings or {name, description} objects.
+function featureToString(f) {
+  if (!f) return ''
+  if (typeof f === 'string') return f
+  if (typeof f === 'object') {
+    const name = f.name || f.title || ''
+    const desc = f.description || f.detail || ''
+    if (name && desc) return `${name}: ${desc}`
+    return name || desc || String(f)
+  }
+  return String(f)
+}
+
+// Normalize features array — handles both string[] and object[] from the AI
+function normalizeFeatures(features) {
+  if (!Array.isArray(features)) return []
+  return features.map(featureToString).filter(Boolean)
 }
 
 function SystemPicker({ type, selected, onToggle, noSystem, onToggleNone }) {
@@ -72,15 +91,22 @@ function LimitPill({ label, current, min, max }) {
   return <span className={`badge ${cls}`} style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{text}</span>
 }
 
-function ResultCard({ marketplace, result, onSave, onDelete, resultKey }) {
+function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resultKey }) {
   const [expanded, setExpanded] = useState(true)
   const [copied, setCopied] = useState(false)
   const [saved, setSaved] = useState(false)
   const [local, setLocal] = useState(result)
   const set = (k, v) => setLocal(r => ({ ...r, [k]: v }))
   const g = marketplace.guidelines
+
+  const featuresDisplay = normalizeFeatures(local.features)
+  const additionalSections = local.additionalSections || []
+
   const copyAll = () => {
-    const text = `MARKETPLACE: ${marketplace.name}\n\nTITLE:\n${local.title}\n\nSHORT DESCRIPTION:\n${local.shortDescription}\n\nLONG DESCRIPTION:\n${local.longDescription}\n\nFEATURES:\n${(local.features || []).map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nTAGS:\n${(local.tags || []).join(', ')}`
+    let text = `MARKETPLACE: ${marketplace.name}\n\nTITLE:\n${local.title}\n\nSHORT DESCRIPTION:\n${local.shortDescription}\n\nLONG DESCRIPTION:\n${local.longDescription}\n\nFEATURES:\n${featuresDisplay.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nTAGS:\n${(local.tags || []).join(', ')}`
+    for (const sec of additionalSections) {
+      text += `\n\n${sec.label.toUpperCase()}:\n${sec.content}`
+    }
     navigator.clipboard.writeText(text).catch(() => {})
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
@@ -90,6 +116,15 @@ function ResultCard({ marketplace, result, onSave, onDelete, resultKey }) {
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
+
+  const updateSection = (i, newContent) => {
+    setLocal(r => {
+      const secs = [...(r.additionalSections || [])]
+      secs[i] = { ...secs[i], content: newContent }
+      return { ...r, additionalSections: secs }
+    })
+  }
+
   return (
     <div className="result-card">
       <div className="result-header">
@@ -100,6 +135,7 @@ function ResultCard({ marketplace, result, onSave, onDelete, resultKey }) {
         <div className="result-actions">
           <button className="btn btn-ghost btn-sm" onClick={copyAll}>{copied ? <Check size={13} /> : <Copy size={13} />}{copied ? 'Copied' : 'Copy all'}</button>
           <button className="btn btn-ghost btn-sm" onClick={handleSave}>{saved ? <Check size={13} /> : <Save size={13} />}{saved ? 'Saved!' : 'Save'}</button>
+          {onRegenerate && <button className="btn btn-ghost btn-sm" onClick={() => onRegenerate(resultKey)} title="Regenerate this listing"><RefreshCw size={13} /></button>}
           <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => onDelete(resultKey)}><Trash2 size={13} /></button>
           <button className="btn btn-ghost btn-sm" onClick={() => setExpanded(e => !e)}>{expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}</button>
         </div>
@@ -114,8 +150,16 @@ function ResultCard({ marketplace, result, onSave, onDelete, resultKey }) {
           <div className="form-group"><label>App title</label><input value={local.title || ''} onChange={e => set('title', e.target.value)} /></div>
           <div className="form-group"><label>Short description</label><textarea value={local.shortDescription || ''} onChange={e => set('shortDescription', e.target.value)} style={{ minHeight: 56 }} /></div>
           <div className="form-group"><label>Long description</label><textarea value={local.longDescription || ''} onChange={e => set('longDescription', e.target.value)} style={{ minHeight: 140 }} /></div>
-          <div className="form-group"><label>Features (one per line)</label><textarea value={(local.features || []).join('\n')} onChange={e => set('features', e.target.value.split('\n'))} style={{ minHeight: 80 }} /></div>
+          <div className="form-group"><label>Features (one per line)</label><textarea value={featuresDisplay.join('\n')} onChange={e => set('features', e.target.value.split('\n'))} style={{ minHeight: 80 }} /></div>
           <div className="form-group"><label>Tags</label><input value={(local.tags || []).join(', ')} onChange={e => set('tags', e.target.value.split(',').map(t => t.trim()))} /></div>
+
+          {additionalSections.map((sec, i) => (
+            <div key={i} className="form-group">
+              <label>{sec.label}</label>
+              <textarea value={sec.content || ''} onChange={e => updateSection(i, e.target.value)} style={{ minHeight: 80 }} />
+            </div>
+          ))}
+
           {local.complianceNotes && local.complianceNotes.length > 0 && (
             <div className="compliance-notes">
               <p><AlertTriangle size={12} style={{ display: 'inline', marginRight: 4 }} />Compliance review notes</p>
@@ -144,23 +188,40 @@ function ResultCard({ marketplace, result, onSave, onDelete, resultKey }) {
 }
 
 export default function GeneratePage({ marketplaces, onSaveVersion, generatedResults, setGeneratedResults, generatedPairs, setGeneratedPairs, generatedMpIds, setGeneratedMpIds, onClearGenerated }) {
+  // Persist form state so a refresh or tab-switch never loses work
+  const persisted = (key, fallback) => {
+    try { const v = localStorage.getItem(key); return v != null ? JSON.parse(v) : fallback } catch { return fallback }
+  }
   const [tab, setTab] = useState('input')
-  const [appName, setAppName] = useState('')
-  const [appVersion, setAppVersion] = useState('')
-  const [appDesc, setAppDesc] = useState('')
-  const [selErps, setSelErps] = useState(new Set())
-  const [selCrms, setSelCrms] = useState(new Set())
-  const [noErp, setNoErp] = useState(false)
-  const [noCrm, setNoCrm] = useState(false)
-  const [selMps, setSelMps] = useState(new Set())
+  const [appName, setAppName] = useState(() => persisted('gen_appName', ''))
+  const [appVersion, setAppVersion] = useState(() => persisted('gen_appVersion', ''))
+  const [appDesc, setAppDesc] = useState(() => persisted('gen_appDesc', ''))
+  const [selErps, setSelErps] = useState(() => new Set(persisted('gen_selErps', [])))
+  const [selCrms, setSelCrms] = useState(() => new Set(persisted('gen_selCrms', [])))
+  const [noErp, setNoErp] = useState(() => persisted('gen_noErp', false))
+  const [noCrm, setNoCrm] = useState(() => persisted('gen_noCrm', false))
+  const [selMps, setSelMps] = useState(() => new Set(persisted('gen_selMps', [])))
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState('')
+  const [progressPct, setProgressPct] = useState(0)
+  const [formError, setFormError] = useState('')
+  const [showAllPairs, setShowAllPairs] = useState(false)
+  const cancelRef = useRef(false)
 
-  const toggleErp = (name) => { setSelErps(s => { const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n }); setNoErp(false) }
-  const toggleCrm = (name) => { setSelCrms(s => { const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n }); setNoCrm(false) }
-  const toggleNoErp = (v) => { setNoErp(v); if (v) setSelErps(new Set()) }
-  const toggleNoCrm = (v) => { setNoCrm(v); if (v) setSelCrms(new Set()) }
-  const toggleMp = (id) => setSelMps(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  useEffect(() => { try { localStorage.setItem('gen_appName', JSON.stringify(appName)) } catch {} }, [appName])
+  useEffect(() => { try { localStorage.setItem('gen_appVersion', JSON.stringify(appVersion)) } catch {} }, [appVersion])
+  useEffect(() => { try { localStorage.setItem('gen_appDesc', JSON.stringify(appDesc)) } catch {} }, [appDesc])
+  useEffect(() => { try { localStorage.setItem('gen_selErps', JSON.stringify([...selErps])) } catch {} }, [selErps])
+  useEffect(() => { try { localStorage.setItem('gen_selCrms', JSON.stringify([...selCrms])) } catch {} }, [selCrms])
+  useEffect(() => { try { localStorage.setItem('gen_noErp', JSON.stringify(noErp)) } catch {} }, [noErp])
+  useEffect(() => { try { localStorage.setItem('gen_noCrm', JSON.stringify(noCrm)) } catch {} }, [noCrm])
+  useEffect(() => { try { localStorage.setItem('gen_selMps', JSON.stringify([...selMps])) } catch {} }, [selMps])
+
+  const toggleErp = (name) => { setSelErps(s => { const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n }); setNoErp(false); setFormError('') }
+  const toggleCrm = (name) => { setSelCrms(s => { const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n }); setNoCrm(false); setFormError('') }
+  const toggleNoErp = (v) => { setNoErp(v); if (v) setSelErps(new Set()); setFormError('') }
+  const toggleNoCrm = (v) => { setNoCrm(v); if (v) setSelCrms(new Set()); setFormError('') }
+  const toggleMp = (id) => { setSelMps(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n }); setFormError('') }
 
   const getPairs = () => {
     const pairs = []
@@ -184,66 +245,55 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
     })
   }
 
-  const generate = async () => {
-    if (!appName.trim()) { alert('Please enter an app name.'); return }
-    if (!appDesc.trim()) { alert('Please enter a one-line description.'); return }
-    if (!currentPairs.length) { alert('Select at least one ERP or CRM/App, or check standalone.'); return }
-    const mps = marketplaces.filter(m => selMps.has(m.id))
-    if (!mps.length) { alert('Select at least one marketplace.'); return }
+  // Generate one listing for a pair x marketplace. Used by the batch loop and per-card Regenerate.
+  const generateOne = async (pair, mp) => {
+    const g = mp.guidelines || {}
+    const sysLine = pair.erp && pair.crm ? `connecting ${pair.erp} (ERP) to ${pair.crm}` : pair.erp ? `for ${pair.erp} ERP users` : pair.crm ? `connecting to ${pair.crm}` : 'as a standalone integration'
 
-    setGenerating(true)
-    setTab('output')
-    const newResults = { ...generatedResults }
-    const total = currentPairs.length * mps.length
-    let done = 0
+    // Only enforce numbers the marketplace actually states — never invent a limit
+    const num = (v) => (typeof v === 'number' && v > 0) ? v : null
+    const tMax = num(g.maxTitle), sMax = num(g.maxShortDesc), lMax = num(g.maxDesc)
+    const tMin = num(g.minTitle), sMin = num(g.minShortDesc), lMin = num(g.minDesc)
+    const fMax = num(g.maxFeatures), fMin = num(g.minFeatures), flMax = num(g.maxFeatureLen), tagMax = num(g.maxTags), tagMin = num(g.minTags)
 
-    // Store pairs and mp ids for persistence
-    setGeneratedPairs(currentPairs)
-    setGeneratedMpIds([...selMps])
+    const clause = (min, max, unit) => {
+      if (min && max) return `between ${min} and ${max} ${unit}`
+      if (max) return `no more than ${max} ${unit}`
+      if (min) return `at least ${min} ${unit}`
+      return null
+    }
+    const titleC = clause(tMin, tMax, 'characters')
+    const shortC = clause(sMin, sMax, 'characters')
+    const longC = clause(lMin, lMax, 'characters')
+    const featCountC = clause(fMin, fMax, 'features')
 
-    for (const pair of currentPairs) {
-      for (const mp of mps) {
-        done++
-        setProgress(`Generating ${pair.label} \u00D7 ${mp.name}\u2026 (${done}/${total})`)
-        const key = `${pair.label}||${mp.id}`
-        try {
-          const g = mp.guidelines || {}
-          const sysLine = pair.erp && pair.crm ? `connecting ${pair.erp} (ERP) to ${pair.crm}` : pair.erp ? `for ${pair.erp} ERP users` : pair.crm ? `connecting to ${pair.crm}` : 'as a standalone integration'
+    const guidelineLines = [
+      `- Title: ${titleC ? `MUST be ${titleC}. ` : ''}Do not use colons or semicolons in the title.`,
+      `- Short description: ${shortC ? `MUST be ${shortC}.` : 'keep it to roughly one clear sentence.'}`,
+      `- Long description: ${longC ? `MUST be ${longC}. This is a HARD requirement.` : 'a few clear paragraphs; do not pad or repeat.'}`,
+      `- Features: ${featCountC ? `provide ${featCountC}` : 'provide 3-5 features'}${flMax ? `, each no more than ${flMax} characters` : ''}`,
+      tagMax || tagMin ? `- Tags: ${clause(tagMin, tagMax, 'tags')}` : `- Tags: a few relevant keywords`,
+      `- Tone: ${g.tone || 'factual and descriptive'}`,
+      `- Rules: ${(g.rules || []).join(' | ')}`
+    ].filter(Boolean).join('\n')
 
-          // Only enforce numbers the marketplace actually states — never invent a limit
-          const num = (v) => (typeof v === 'number' && v > 0) ? v : null
-          const tMax = num(g.maxTitle), sMax = num(g.maxShortDesc), lMax = num(g.maxDesc)
-          const tMin = num(g.minTitle), sMin = num(g.minShortDesc), lMin = num(g.minDesc)
-          const fMax = num(g.maxFeatures), fMin = num(g.minFeatures), flMax = num(g.maxFeatureLen), tagMax = num(g.maxTags), tagMin = num(g.minTags)
+    const featureFormatBlock = g.featureRequirements
+      ? `\n${mp.name.toUpperCase()} FEATURE FORMAT (follow this EXACTLY for every item in the features array):\n${g.featureRequirements}\nEach feature you write must match this required structure.\n`
+      : ''
 
-          // Turn a min/max pair into a plain-English constraint, or null when nothing is stated
-          const clause = (min, max, unit) => {
-            if (min && max) return `between ${min} and ${max} ${unit}`
-            if (max) return `no more than ${max} ${unit}`
-            if (min) return `at least ${min} ${unit}`
-            return null
-          }
-          const titleC = clause(tMin, tMax, 'characters')
-          const shortC = clause(sMin, sMax, 'characters')
-          const longC = clause(lMin, lMax, 'characters')
-          const featCountC = clause(fMin, fMax, 'features')
+    // Additional text sections this marketplace requires (from nextSteps), excluding visual/external items
+    const visualKeywords = ['icon', 'screenshot', 'image', 'video', 'demo', 'logo', 'png', 'jpg', 'jpeg', 'pixel', 'px', 'photo', 'recording']
+    const externalKeywords = ['url', 'link', 'website', 'prepare a live', 'prepare live', 'terms of service', 'privacy policy']
+    const isVisualOrExternal = (s) => {
+      const lower = s.toLowerCase()
+      return visualKeywords.some(k => lower.includes(k)) || externalKeywords.some(k => lower.includes(k))
+    }
+    const textSections = (g.nextSteps || []).filter(s => !isVisualOrExternal(s))
+    const additionalSectionsPrompt = textSections.length > 0
+      ? `\nADDITIONAL CONTENT SECTIONS — ${mp.name} requires these. Generate each one:\n${textSections.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\nInclude all of these in the "additionalSections" array in the JSON output, each as {"label": "<section name>", "content": "<the generated content for this section>"}.\n`
+      : ''
 
-          const guidelineLines = [
-            `- Title: ${titleC ? `MUST be ${titleC}. ` : ''}Do not use colons or semicolons in the title.`,
-            `- Short description: ${shortC ? `MUST be ${shortC}.` : 'keep it to roughly one clear sentence.'}`,
-            `- Long description: ${longC ? `MUST be ${longC}. This is a HARD requirement.` : 'a few clear paragraphs; do not pad or repeat.'}`,
-            `- Features: ${featCountC ? `provide ${featCountC}` : 'provide 3-5 features'}${flMax ? `, each no more than ${flMax} characters` : ''}`,
-            tagMax || tagMin ? `- Tags: ${clause(tagMin, tagMax, 'tags')}` : `- Tags: a few relevant keywords`,
-            `- Tone: ${g.tone || 'factual and descriptive'}`,
-            `- Rules: ${(g.rules || []).join(' | ')}`
-          ].filter(Boolean).join('\n')
-
-          // The marketplace's exact required feature format — must always be applied
-          const featureFormatBlock = g.featureRequirements
-            ? `\n${mp.name.toUpperCase()} FEATURE FORMAT (follow this EXACTLY for every item in the features array):\n${g.featureRequirements}\nEach feature you write must match this required structure.\n`
-            : ''
-
-          const prompt = `You are an expert app marketplace copywriter for Commercient, specialists in ERP/CRM integration software.
+    const prompt = `You are an expert app marketplace copywriter for Commercient, specialists in ERP/CRM integration software.
 
 Generate a fully compliant listing for "${appName}" ${sysLine}, for the ${mp.name} marketplace.
 
@@ -257,7 +307,7 @@ ${pair.crm ? `- CRM/App: ${pair.crm}` : ''}
 
 ${mp.name.toUpperCase()} GUIDELINES:
 ${guidelineLines}
-${featureFormatBlock}
+${featureFormatBlock}${additionalSectionsPrompt}
 CRITICAL FORMATTING RULES:
 - ALL text must be PLAIN TEXT ONLY.
 - Do NOT use any HTML tags (no <h1>, <h2>, <p>, <br>, <b>, <strong>, <ul>, <li>, etc.)
@@ -279,88 +329,136 @@ TONE AND LANGUAGE RULES:
 - Describe capabilities, not promises. State facts, not pitches.
 
 Use your knowledge of both platforms to write an accurate factual listing. Return ONLY valid JSON no preamble:
-{"title":"","shortDescription":"","longDescription":"","features":[],"tags":[],"complianceNotes":[]}`
+{"title":"","shortDescription":"","longDescription":"","features":[],"tags":[],"additionalSections":[],"complianceNotes":[]}`
 
-          const resp = await fetch('/.netlify/functions/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt })
-          })
-          if (!resp.ok) {
-            const err = await resp.json().catch(() => ({ error: `Server error (${resp.status})` }))
-            throw new Error(err.error || `Server error (${resp.status})`)
-          }
-          const data = await resp.json()
+    const resp = await fetch('/.netlify/functions/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt })
+    })
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: `Server error (${resp.status})` }))
+      throw new Error(err.error || `Server error (${resp.status})`)
+    }
+    const data = await resp.json()
 
-          if (data.longDescription) {
-            data.longDescription = data.longDescription.replace(/<[^>]*>/g, '').replace(/#{1,6}\s/g, '').replace(/\*\*/g, '').trim()
-          }
-          if (data.shortDescription) {
-            data.shortDescription = data.shortDescription.replace(/<[^>]*>/g, '').trim()
-          }
-          if (data.title) {
-            data.title = data.title.replace(/<[^>]*>/g, '').trim()
-          }
+    if (data.longDescription) {
+      data.longDescription = data.longDescription.replace(/<[^>]*>/g, '').replace(/#{1,6}\s/g, '').replace(/\*\*/g, '').trim()
+    }
+    if (data.shortDescription) {
+      data.shortDescription = data.shortDescription.replace(/<[^>]*>/g, '').trim()
+    }
+    if (data.title) {
+      data.title = data.title.replace(/<[^>]*>/g, '').trim()
+    }
 
-          // Enforce marketplace limits so every listing is guaranteed to fit before it's shown
-          const notes = Array.isArray(data.complianceNotes) ? [...data.complianceNotes] : []
+    // Enforce marketplace limits so every listing is guaranteed to fit before it's shown
+    const notes = Array.isArray(data.complianceNotes) ? [...data.complianceNotes] : []
 
-          const t = fitText(data.title, tMax); data.title = t.text
-          if (t.trimmed) notes.push(`Title auto-trimmed to fit the ${tMax}-character limit.`)
+    const t = fitText(data.title, tMax); data.title = t.text
+    if (t.trimmed) notes.push(`Title auto-trimmed to fit the ${tMax}-character limit.`)
 
-          const s = fitText(data.shortDescription, sMax); data.shortDescription = s.text
-          if (s.trimmed) notes.push(`Short description auto-trimmed to fit the ${sMax}-character limit.`)
+    const s = fitText(data.shortDescription, sMax); data.shortDescription = s.text
+    if (s.trimmed) notes.push(`Short description auto-trimmed to fit the ${sMax}-character limit.`)
 
-          const l = fitText(data.longDescription, lMax); data.longDescription = l.text
-          if (l.trimmed) notes.push(`Long description auto-trimmed to fit the ${lMax}-character limit.`)
+    const l = fitText(data.longDescription, lMax); data.longDescription = l.text
+    if (l.trimmed) notes.push(`Long description auto-trimmed to fit the ${lMax}-character limit.`)
 
-          // Minimums can't be auto-padded without filler (which marketplaces reject), so flag if unmet
-          const checkMin = (fieldLabel, val, min) => {
-            if (min && (val || '').length < min) notes.push(`${fieldLabel} is ${(val || '').length}/${min} characters — below the required minimum. Add more detail before submitting.`)
-          }
-          checkMin('Title', data.title, tMin)
-          checkMin('Short description', data.shortDescription, sMin)
-          checkMin('Long description', data.longDescription, lMin)
+    // Minimums can't be auto-padded without filler (which marketplaces reject), so flag if unmet
+    const checkMin = (fieldLabel, val, min) => {
+      if (min && (val || '').length < min) notes.push(`${fieldLabel} is ${(val || '').length}/${min} characters — below the required minimum. Add more detail before submitting.`)
+    }
+    checkMin('Title', data.title, tMin)
+    checkMin('Short description', data.shortDescription, sMin)
+    checkMin('Long description', data.longDescription, lMin)
 
-          if (Array.isArray(data.features)) {
-            // Trim each feature to its length limit, then cap the number of features
-            let feats = data.features.map(f => fitText(f, flMax).text)
-            if (fMax && feats.length > fMax) {
-              feats = feats.slice(0, fMax)
-              notes.push(`Trimmed to the ${fMax} allowed features.`)
-            }
-            if (fMin && feats.length < fMin) {
-              notes.push(`Only ${feats.length} features generated — at least ${fMin} required.`)
-            }
-            data.features = feats
-          }
+    if (Array.isArray(data.features)) {
+      let feats = normalizeFeatures(data.features).map(f => fitText(f, flMax).text)
+      if (fMax && feats.length > fMax) {
+        feats = feats.slice(0, fMax)
+        notes.push(`Trimmed to the ${fMax} allowed features.`)
+      }
+      if (fMin && feats.length < fMin) {
+        notes.push(`Only ${feats.length} features generated — at least ${fMin} required.`)
+      }
+      data.features = feats
+    }
 
-          if (tagMax && Array.isArray(data.tags) && data.tags.length > tagMax) {
-            data.tags = data.tags.slice(0, tagMax)
-            notes.push(`Trimmed to the ${tagMax} allowed tags.`)
-          }
-          if (tagMin && Array.isArray(data.tags) && data.tags.length < tagMin) {
-            notes.push(`Only ${data.tags.length} tags — at least ${tagMin} required.`)
-          }
+    if (tagMax && Array.isArray(data.tags) && data.tags.length > tagMax) {
+      data.tags = data.tags.slice(0, tagMax)
+      notes.push(`Trimmed to the ${tagMax} allowed tags.`)
+    }
+    if (tagMin && Array.isArray(data.tags) && data.tags.length < tagMin) {
+      notes.push(`Only ${data.tags.length} tags — at least ${tagMin} required.`)
+    }
 
-          data.complianceNotes = notes
+    data.complianceNotes = notes
+    return data
+  }
 
+  const generate = async () => {
+    if (!appName.trim()) { setFormError('Enter an app name before generating.'); return }
+    if (!appDesc.trim()) { setFormError('Enter a one-line description before generating.'); return }
+    if (!currentPairs.length) { setFormError('Select at least one ERP or CRM/App, or check standalone.'); return }
+    const mps = marketplaces.filter(m => selMps.has(m.id))
+    if (!mps.length) { setFormError('Select at least one marketplace.'); return }
+
+    const total = currentPairs.length * mps.length
+    if (total > 15 && !window.confirm(`This will generate ${total} listings and may take several minutes. Continue?`)) return
+
+    setFormError('')
+    setGenerating(true)
+    setTab('output')
+    cancelRef.current = false
+    const newResults = { ...generatedResults }
+    let done = 0
+
+    setGeneratedPairs(currentPairs)
+    setGeneratedMpIds([...selMps])
+
+    outer:
+    for (const pair of currentPairs) {
+      for (const mp of mps) {
+        if (cancelRef.current) break outer
+        done++
+        setProgress(`Generating ${pair.label} \u00D7 ${mp.name}\u2026 (${done}/${total})`)
+        setProgressPct(Math.round((done - 1) / total * 100))
+        const key = `${pair.label}||${mp.id}`
+        try {
+          const data = await generateOne(pair, mp)
           newResults[key] = data
-          setGeneratedResults({ ...newResults })
         } catch (e) {
           newResults[key] = { error: true, message: e.message }
-          setGeneratedResults({ ...newResults })
         }
+        setGeneratedResults({ ...newResults })
+        setProgressPct(Math.round(done / total * 100))
       }
     }
     setGenerating(false)
     setProgress('')
+    setProgressPct(0)
+  }
+
+  const handleRegenerate = async (key) => {
+    const [label, mpId] = key.split('||')
+    const pool = generatedPairs.length > 0 ? generatedPairs : currentPairs
+    const pair = pool.find(p => p.label === label)
+    const mp = marketplaces.find(m => m.id === mpId)
+    if (!pair || !mp) return
+    setGeneratedResults(prev => ({ ...prev, [key]: { pending: true } }))
+    try {
+      const data = await generateOne(pair, mp)
+      setGeneratedResults(prev => ({ ...prev, [key]: data }))
+    } catch (e) {
+      setGeneratedResults(prev => ({ ...prev, [key]: { error: true, message: e.message } }))
+    }
   }
 
   const resultCount = Object.keys(generatedResults).length
   const displayPairs = generatedPairs.length > 0 ? generatedPairs : currentPairs
   const displayMpIds = generatedMpIds.length > 0 ? generatedMpIds : [...selMps]
   const displayMps = marketplaces.filter(m => displayMpIds.includes(m.id))
+  const visiblePairs = showAllPairs ? currentPairs : currentPairs.slice(0, 12)
 
   return (
     <div className="page">
@@ -373,12 +471,12 @@ Use your knowledge of both platforms to write an accurate factual listing. Retur
           <div className="card">
             <div className="card-title">App details</div>
             <div className="form-grid">
-              <div className="form-group"><label>App name</label><input value={appName} onChange={e => setAppName(e.target.value)} placeholder="e.g. CommercialSync" /></div>
+              <div className="form-group"><label>App name</label><input value={appName} onChange={e => { setAppName(e.target.value); setFormError('') }} placeholder="e.g. CommercialSync" /></div>
               <div className="form-group"><label>Version (optional)</label><input value={appVersion} onChange={e => setAppVersion(e.target.value)} placeholder="e.g. 2.1" /></div>
             </div>
             <div className="form-group">
               <label>One-line description &mdash; applies to all listings</label>
-              <textarea value={appDesc} onChange={e => setAppDesc(e.target.value)} placeholder="e.g. Syncs customer accounts, orders, invoices and inventory between ERP and CRM systems in real time, eliminating manual data entry." style={{ minHeight: 72 }} />
+              <textarea value={appDesc} onChange={e => { setAppDesc(e.target.value); setFormError('') }} placeholder="e.g. Syncs customer accounts, orders, invoices and inventory between ERP and CRM systems in real time, eliminating manual data entry." style={{ minHeight: 72 }} />
             </div>
           </div>
           <div className="card">
@@ -388,34 +486,60 @@ Use your knowledge of both platforms to write an accurate factual listing. Retur
               <SystemPicker type="crm" selected={selCrms} onToggle={toggleCrm} noSystem={noCrm} onToggleNone={toggleNoCrm} />
             </div>
             {currentPairs.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                {currentPairs.map(p => <span key={p.label} style={{ padding: '3px 10px', background: 'var(--accent-light)', color: 'var(--accent)', borderRadius: 20, fontSize: 11, fontWeight: 500 }}>{p.label}</span>)}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10, alignItems: 'center' }}>
+                {visiblePairs.map(p => <span key={p.label} style={{ padding: '3px 10px', background: 'var(--accent-light)', color: 'var(--accent)', borderRadius: 20, fontSize: 11, fontWeight: 500 }}>{p.label}</span>)}
+                {currentPairs.length > 12 && (
+                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => setShowAllPairs(s => !s)}>
+                    {showAllPairs ? 'Show fewer' : `+${currentPairs.length - 12} more`}
+                  </button>
+                )}
               </div>
             )}
           </div>
           <div className="card">
             <div className="card-title">Target marketplaces</div>
-            <div className="chip-list">
-              {marketplaces.map(mp => (
-                <div key={mp.id} className={`chip ${selMps.has(mp.id) ? 'selected' : ''}`} onClick={() => toggleMp(mp.id)}>
-                  <span className="chip-dot" style={{ background: mp.color }} />{mp.name}
-                </div>
-              ))}
-            </div>
+            {marketplaces.length === 0 ? (
+              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No marketplaces yet — click <strong>Add marketplace</strong> in the sidebar to add one with its guideline URLs.</p>
+            ) : (
+              <div className="chip-list">
+                {marketplaces.map(mp => (
+                  <div key={mp.id} className={`chip ${selMps.has(mp.id) ? 'selected' : ''}`} onClick={() => toggleMp(mp.id)}>
+                    <span className="chip-dot" style={{ background: mp.color }} />{mp.name}
+                  </div>
+                ))}
+              </div>
+            )}
             <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 10 }}>Each listing follows that marketplace's character limits and content rules automatically.</p>
           </div>
+          {formError && (
+            <div style={{ background: 'var(--red-bg)', color: 'var(--red)', padding: '8px 12px', borderRadius: 'var(--radius)', fontSize: 12, marginBottom: 12 }}>
+              {formError}
+            </div>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <button className="btn btn-primary" onClick={generate} disabled={generating}>
               <Sparkles size={14} />
               {generating ? 'Generating\u2026' : `Generate ${currentPairs.length * selMps.size} listing${currentPairs.length * selMps.size !== 1 ? 's' : ''}`}
             </button>
-            {currentPairs.length > 0 && selMps.size > 0 && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{currentPairs.length} pair{currentPairs.length !== 1 ? 's' : ''} \u00D7 {selMps.size} marketplace{selMps.size !== 1 ? 's' : ''}</span>}
+            {currentPairs.length > 0 && selMps.size > 0 && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{currentPairs.length} pair{currentPairs.length !== 1 ? 's' : ''} × {selMps.size} marketplace{selMps.size !== 1 ? 's' : ''}</span>}
           </div>
         </>
       )}
       {tab === 'output' && (
         <>
-          {generating && <div className="loading-row"><div className="spinner" />{progress}</div>}
+          {generating && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <div className="loading-row" style={{ margin: 0 }}><div className="spinner" />{progress}</div>
+                <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => { cancelRef.current = true }}>
+                  <XCircle size={12} /> Stop
+                </button>
+              </div>
+              <div style={{ height: 4, background: 'var(--bg-surface)', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${progressPct}%`, background: 'var(--accent)', borderRadius: 4, transition: 'width 0.4s ease' }} />
+              </div>
+            </div>
+          )}
           {!generating && resultCount === 0 && <div className="empty-state"><div className="empty-state-icon">{'\u2726'}</div><h3>No listings generated yet</h3><p>Fill in your app details and click Generate.</p></div>}
           {resultCount > 0 && !generating && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -429,8 +553,18 @@ Use your knowledge of both platforms to write an accurate factual listing. Retur
                 const key = `${pair.label}||${mp.id}`
                 const r = generatedResults[key]
                 if (!r) return null
-                if (r.error) return <div key={mp.id} className="result-card" style={{ padding: 14, fontSize: 13, color: 'var(--red)' }}>{mp.name}: {r.message || 'Generation failed'}</div>
-                return <ResultCard key={mp.id} marketplace={mp} result={r} onSave={onSaveVersion} onDelete={handleDeleteResult} resultKey={key} />
+                if (r.pending) return (
+                  <div key={mp.id} className="result-card" style={{ padding: 14, fontSize: 13, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div className="spinner" /> Regenerating {mp.name}…
+                  </div>
+                )
+                if (r.error) return (
+                  <div key={mp.id} className="result-card" style={{ padding: 14, fontSize: 13, color: 'var(--red)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                    <span>{mp.name}: {r.message || 'Generation failed'}</span>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleRegenerate(key)}><RefreshCw size={12} /> Retry</button>
+                  </div>
+                )
+                return <ResultCard key={mp.id} marketplace={mp} result={r} onSave={onSaveVersion} onDelete={handleDeleteResult} onRegenerate={handleRegenerate} resultKey={key} />
               })}
             </div>
           ))}
