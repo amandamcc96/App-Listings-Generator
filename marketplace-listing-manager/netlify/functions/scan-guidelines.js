@@ -39,6 +39,11 @@ exports.handler = async function(event, context) {
       existing = []
     }
 
+    // Prevent duplicate marketplaces (case-insensitive name match)
+    if (existing.some(m => (m.name || '').trim().toLowerCase() === name.trim().toLowerCase())) {
+      return { statusCode: 409, body: JSON.stringify({ error: `A marketplace named "${name}" already exists. Delete it first or use Add URLs / Rescan in Settings.` }) }
+    }
+
     try {
       existing.push(marketplace)
       await store.setJSON("list", existing)

@@ -34,7 +34,11 @@ exports.handler = async function(event, context) {
     const prevG = mp.guidelines || {}
     const now = new Date().toISOString()
     const plainTextRule = 'Long description must be plain text only — no HTML, no markdown, no heading tags'
-    const allUrls = isMerge ? [...(mp.guidelineUrls || []), ...additionalUrls] : (mp.guidelineUrls || [])
+    // Dedupe URLs (case-insensitive, ignoring trailing slash) so re-adding the same page doesn't double it
+    const normUrl = (u) => String(u).trim().replace(/\/+$/, '').toLowerCase()
+    const allUrls = isMerge
+      ? [...(mp.guidelineUrls || []), ...additionalUrls].filter((u, i, arr) => arr.findIndex(x => normUrl(x) === normUrl(u)) === i)
+      : (mp.guidelineUrls || [])
 
     let g
     if (isMerge) {

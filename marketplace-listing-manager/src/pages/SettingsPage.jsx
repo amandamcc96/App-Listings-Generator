@@ -235,7 +235,7 @@ export default function SettingsPage({ customMarketplaces, onDeleteCustom, onCle
         ) : (
           <>
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
-              Guidelines are automatically rescanned every 6 months (January and July). You can also rescan manually or add more URLs to any marketplace.
+              Guidelines are automatically refreshed when they're more than 6 months old. You can also rescan manually or add more URLs to any marketplace.
             </p>
             {customMarketplaces.map(mp => (
               <MarketplaceRow
@@ -253,7 +253,7 @@ export default function SettingsPage({ customMarketplaces, onDeleteCustom, onCle
       <div className="card">
         <div className="card-title">Automatic guideline rescanning</div>
         <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7 }}>
-          All marketplace guidelines are automatically rescanned on <strong>January 1st</strong> and <strong>July 1st</strong> each year to keep listings compliant with the latest requirements.
+          Marketplace guidelines are automatically refreshed in the background once they're more than <strong>6 months</strong> old, keeping listings compliant with the latest requirements. The "Last scanned" date on each marketplace shows when its guidelines were last updated.
         </p>
       </div>
 

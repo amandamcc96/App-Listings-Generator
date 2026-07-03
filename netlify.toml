@@ -11,6 +11,10 @@
 [functions."extract-guidelines"]
   timeout = 26
 
+[functions."rescan-marketplaces"]
+  timeout = 26
+  schedule = "@hourly"
+
 [[redirects]]
   from = "/api/generate"
   to = "/.netlify/functions/generate"
