@@ -5,6 +5,12 @@
 [functions]
   directory = "netlify/functions"
 
+[functions."generate"]
+  timeout = 26
+
+[functions."extract-guidelines"]
+  timeout = 26
+
 [[redirects]]
   from = "/api/generate"
   to = "/.netlify/functions/generate"
