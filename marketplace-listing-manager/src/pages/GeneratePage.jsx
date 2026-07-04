@@ -318,7 +318,7 @@ ${guidelineLines}
 ${featureFormatBlock}
 CRITICAL FORMATTING RULES:
 - Write the long description as natural flowing paragraphs separated by blank lines.
-${lMax ? `- The long description MUST NOT exceed ${lMax} characters. If approaching the limit, write less.` : ''}
+${lMax ? `- The long description MUST NOT exceed ${lMax} characters. If approaching the limit, write less.` : `- Keep the long description under 2500 characters — thorough but not padded.`}
 ${lMin ? `- The long description MUST be at least ${lMin} characters of substantive content (no filler or repetition to pad length).` : ''}
 ${tMax ? `- The title MUST NOT exceed ${tMax} characters and must NOT contain colons or semicolons.` : `- The title must NOT contain colons or semicolons.`}
 ${tMin ? `- The title MUST be at least ${tMin} characters.` : ''}
@@ -344,7 +344,7 @@ Use your knowledge of both platforms to write an accurate factual listing. Retur
     }
 
     // Call 1: the core listing
-    const data = await callGenerate(corePrompt, 1200)
+    const data = await callGenerate(corePrompt, 1500)
 
     // Calls 2+: additional sections in batches of 5, so each response stays small and fast
     const sections = []
