@@ -2,6 +2,33 @@
 // The client splits work into small calls (core listing, then section batches),
 // so each invocation stays well under the 10-second function timeout.
 
+// Repair JSON that was cut off mid-stream by the max_tokens cap:
+// close any unterminated string, strip a dangling comma/colon, and close open brackets.
+function repairTruncatedJson(s) {
+  let str = s
+  let inStr = false
+  const stack = []
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i]
+    if (inStr) {
+      if (c === '\\') i++
+      else if (c === '"') inStr = false
+    } else {
+      if (c === '"') inStr = true
+      else if (c === '{' || c === '[') stack.push(c)
+      else if (c === '}' || c === ']') stack.pop()
+    }
+  }
+  if (inStr) str += '"'
+  str = str.replace(/[,\s]*$/, '')
+  if (/:$/.test(str.trim())) str += ' null'
+  while (stack.length) {
+    const open = stack.pop()
+    str += open === '{' ? '}' : ']'
+  }
+  return str
+}
+
 exports.handler = async function(event, context) {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) }
@@ -43,15 +70,37 @@ exports.handler = async function(event, context) {
     const data = await response.json()
     const text = data.content.map(i => i.text || '').join('')
     const clean = text.replace(/```json|```/g, '').trim()
-    const jsonMatch = clean.match(/\{[\s\S]*\}/)
+    const jsonMatch = clean.match(/\{[\s\S]*\}|\{[\s\S]*$/)
     if (!jsonMatch) {
       return { statusCode: 500, body: JSON.stringify({ error: 'AI did not return valid JSON' }) }
+    }
+
+    let parsed
+    let wasRepaired = false
+    try {
+      parsed = JSON.parse(jsonMatch[0])
+    } catch (parseErr) {
+      // Truncated mid-stream — repair and retry the parse
+      try {
+        parsed = JSON.parse(repairTruncatedJson(jsonMatch[0]))
+        wasRepaired = true
+      } catch (repairErr) {
+        return { statusCode: 500, body: JSON.stringify({ error: 'AI returned malformed JSON: ' + parseErr.message }) }
+      }
+    }
+
+    if (wasRepaired || data.stop_reason === 'max_tokens') {
+      if (Array.isArray(parsed.complianceNotes)) {
+        parsed.complianceNotes.push('Response was cut off and automatically recovered — review this listing for missing content.')
+      } else if (parsed && typeof parsed === 'object' && !Array.isArray(parsed.sections)) {
+        parsed.complianceNotes = ['Response was cut off and automatically recovered — review this listing for missing content.']
+      }
     }
 
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(JSON.parse(jsonMatch[0]))
+      body: JSON.stringify(parsed)
     }
   } catch (err) {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) }
