@@ -281,7 +281,8 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
       ? `\n${mp.name.toUpperCase()} FEATURE FORMAT (follow this EXACTLY for every item in the features array):\n${g.featureRequirements}\nEach feature you write must match this required structure.\n`
       : ''
 
-    // Additional text sections this marketplace requires (from nextSteps), excluding visual/external items
+    // Additional text sections this marketplace requires (from nextSteps), excluding visual/external items.
+    // These are generated in separate small batched calls so no single request risks a timeout.
     const visualKeywords = ['icon', 'screenshot', 'image', 'video', 'demo', 'logo', 'png', 'jpg', 'jpeg', 'pixel', 'px', 'photo', 'recording']
     const externalKeywords = ['url', 'link', 'website', 'prepare a live', 'prepare live', 'terms of service', 'privacy policy']
     const isVisualOrExternal = (s) => {
@@ -289,30 +290,33 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
       return visualKeywords.some(k => lower.includes(k)) || externalKeywords.some(k => lower.includes(k))
     }
     const textSections = (g.nextSteps || []).filter(s => !isVisualOrExternal(s))
-    const additionalSectionsPrompt = textSections.length > 0
-      ? `\nADDITIONAL CONTENT SECTIONS — ${mp.name} requires these. Generate each one:\n${textSections.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\nInclude all of these in the "additionalSections" array in the JSON output, each as {"label": "<section name>", "content": "<the generated content for this section>"}.\n`
-      : ''
 
-    const prompt = `You are an expert app marketplace copywriter for Commercient, specialists in ERP/CRM integration software.
-
-Generate a fully compliant listing for "${appName}" ${sysLine}, for the ${mp.name} marketplace.
-
-APP INFO:
+    const appInfoBlock = `APP INFO:
 - App: ${appName} ${sysLine}
 - Version: ${appVersion || 'current'}
 - Description: ${appDesc}
 ${pair.erp ? `- ERP: ${pair.erp}` : ''}
 ${pair.crm ? `- CRM/App: ${pair.crm}` : ''}
-- Company: Commercient
+- Company: Commercient`
+
+    const toneBlock = `TONE AND LANGUAGE RULES:
+- Do NOT use any sales or marketing language.
+- Do NOT use phrases like "get started today", "work harder", "unlock", "supercharge", "revolutionize", "game-changing", "seamless", or any calls to action.
+- Write in a factual, descriptive, technical tone.
+- Focus on what the integration does, how it works, and what data it syncs.
+- Describe capabilities, not promises. State facts, not pitches.
+- ALL text must be PLAIN TEXT ONLY — no HTML tags, no markdown, no heading syntax.`
+
+    const corePrompt = `You are an expert app marketplace copywriter for Commercient, specialists in ERP/CRM integration software.
+
+Generate a fully compliant listing for "${appName}" ${sysLine}, for the ${mp.name} marketplace.
+
+${appInfoBlock}
 
 ${mp.name.toUpperCase()} GUIDELINES:
 ${guidelineLines}
-${featureFormatBlock}${additionalSectionsPrompt}
+${featureFormatBlock}
 CRITICAL FORMATTING RULES:
-- ALL text must be PLAIN TEXT ONLY.
-- Do NOT use any HTML tags (no <h1>, <h2>, <p>, <br>, <b>, <strong>, <ul>, <li>, etc.)
-- Do NOT use any markdown formatting (no #, ##, **, *, -, etc.)
-- Do NOT use any special formatting characters or heading syntax.
 - Write the long description as natural flowing paragraphs separated by blank lines.
 ${lMax ? `- The long description MUST NOT exceed ${lMax} characters. If approaching the limit, write less.` : ''}
 ${lMin ? `- The long description MUST be at least ${lMin} characters of substantive content (no filler or repetition to pad length).` : ''}
@@ -321,26 +325,53 @@ ${tMin ? `- The title MUST be at least ${tMin} characters.` : ''}
 ${sMax ? `- The short description MUST NOT exceed ${sMax} characters.` : ''}
 ${sMin ? `- The short description MUST be at least ${sMin} characters.` : ''}
 
-TONE AND LANGUAGE RULES:
-- Do NOT use any sales or marketing language.
-- Do NOT use phrases like "get started today", "work harder", "unlock", "supercharge", "revolutionize", "game-changing", "seamless", or any calls to action.
-- Write in a factual, descriptive, technical tone.
-- Focus on what the integration does, how it works, and what data it syncs.
-- Describe capabilities, not promises. State facts, not pitches.
+${toneBlock}
 
 Use your knowledge of both platforms to write an accurate factual listing. Return ONLY valid JSON no preamble:
-{"title":"","shortDescription":"","longDescription":"","features":[],"tags":[],"additionalSections":[],"complianceNotes":[]}`
+{"title":"","shortDescription":"","longDescription":"","features":[],"tags":[],"complianceNotes":[]}`
 
-    const resp = await fetch('/.netlify/functions/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt })
-    })
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({ error: `Server error (${resp.status})` }))
-      throw new Error(err.error || `Server error (${resp.status})`)
+    const callGenerate = async (prompt, maxTokens) => {
+      const resp = await fetch('/.netlify/functions/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, maxTokens })
+      })
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: `Server error (${resp.status})` }))
+        throw new Error(err.error || `Server error (${resp.status})`)
+      }
+      return resp.json()
     }
-    const data = await resp.json()
+
+    // Call 1: the core listing
+    const data = await callGenerate(corePrompt, 1200)
+
+    // Calls 2+: additional sections in batches of 5, so each response stays small and fast
+    const sections = []
+    for (let b = 0; b < textSections.length; b += 5) {
+      const batch = textSections.slice(b, b + 5)
+      const sectionPrompt = `You are an expert app marketplace copywriter for Commercient, writing content for the "${appName}" listing on the ${mp.name} marketplace.
+
+${appInfoBlock}
+
+${toneBlock}
+
+The generated listing title is: ${data.title || appName}
+The short description is: ${data.shortDescription || appDesc}
+
+${mp.name} requires the following additional listing content. Write each one:
+${batch.map((s, i) => `${i + 1}. ${s}`).join('\n')}
+
+Return ONLY valid JSON no preamble:
+{"sections":[{"label":"<short section name>","content":"<the generated content>"}]}`
+      try {
+        const res = await callGenerate(sectionPrompt, 1200)
+        if (Array.isArray(res.sections)) sections.push(...res.sections.filter(s => s && s.label))
+      } catch (e) {
+        sections.push({ label: `Sections ${b + 1}-${b + batch.length} (failed)`, content: `Generation failed: ${e.message}. Use Regenerate to retry.` })
+      }
+    }
+    data.additionalSections = sections
 
     if (data.longDescription) {
       data.longDescription = data.longDescription.replace(/<[^>]*>/g, '').replace(/#{1,6}\s/g, '').replace(/\*\*/g, '').trim()

@@ -1,6 +1,6 @@
-// Generates one listing from the prompt built in the browser.
-// The prompt already contains the full stored marketplace guidelines (limits, rules,
-// tone, feature format), so no live URL fetching is needed — keeps this fast (no timeout).
+// Generates listing content from a prompt built in the browser.
+// The client splits work into small calls (core listing, then section batches),
+// so each invocation stays well under the 10-second function timeout.
 
 exports.handler = async function(event, context) {
   if (event.httpMethod !== 'POST') {
@@ -13,10 +13,13 @@ exports.handler = async function(event, context) {
   }
 
   try {
-    const { prompt } = JSON.parse(event.body)
+    const { prompt, maxTokens } = JSON.parse(event.body)
     if (!prompt) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Prompt is required' }) }
     }
+
+    // Bound output size server-side; smaller outputs = faster responses = no timeouts
+    const tokens = Math.min(Math.max(parseInt(maxTokens) || 1000, 200), 1500)
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -27,7 +30,7 @@ exports.handler = async function(event, context) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
+        max_tokens: tokens,
         messages: [{ role: 'user', content: prompt }]
       })
     })
