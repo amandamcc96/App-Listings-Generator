@@ -37,6 +37,12 @@ function normalizeFeatures(features) {
   return features.map(featureToString).filter(Boolean)
 }
 
+// Classify marketplace nextSteps items: visual assets vs external links vs generatable text
+const VISUAL_KEYWORDS = ['icon', 'screenshot', 'image', 'video', 'demo', 'logo', 'png', 'jpg', 'jpeg', 'pixel', 'px', 'photo', 'recording']
+const EXTERNAL_KEYWORDS = ['url', 'link', 'website', 'prepare a live', 'prepare live', 'terms of service', 'privacy policy']
+const isVisualStep = (s) => VISUAL_KEYWORDS.some(k => String(s).toLowerCase().includes(k))
+const isExternalStep = (s) => EXTERNAL_KEYWORDS.some(k => String(s).toLowerCase().includes(k))
+
 function SystemPicker({ type, selected, onToggle, noSystem, onToggleNone }) {
   const [search, setSearch] = useState('')
   const items = type === 'erp' ? ERPS : CRMS_APPS
@@ -95,12 +101,14 @@ function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resul
   const [expanded, setExpanded] = useState(true)
   const [copied, setCopied] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [notesOpen, setNotesOpen] = useState(false)
   const [local, setLocal] = useState(result)
   const set = (k, v) => setLocal(r => ({ ...r, [k]: v }))
   const g = marketplace.guidelines
 
   const featuresDisplay = normalizeFeatures(local.features)
   const additionalSections = local.additionalSections || []
+  const visualSteps = (marketplace.guidelines.nextSteps || []).filter(isVisualStep)
 
   const copyAll = () => {
     let text = `MARKETPLACE: ${marketplace.name}\n\nTITLE:\n${local.title}\n\nSHORT DESCRIPTION:\n${local.shortDescription}\n\nLONG DESCRIPTION:\n${local.longDescription}\n\nFEATURES:\n${featuresDisplay.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nTAGS:\n${(local.tags || []).join(', ')}`
@@ -162,17 +170,21 @@ function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resul
 
           {local.complianceNotes && local.complianceNotes.length > 0 && (
             <div className="compliance-notes">
-              <p><AlertTriangle size={12} style={{ display: 'inline', marginRight: 4 }} />Compliance review notes</p>
-              <ul>{local.complianceNotes.map((n, i) => <li key={i}>{n}</li>)}</ul>
+              <p onClick={() => setNotesOpen(o => !o)} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, userSelect: 'none' }}>
+                <AlertTriangle size={12} style={{ display: 'inline', marginRight: 4 }} />
+                Compliance review notes ({local.complianceNotes.length})
+                {notesOpen ? <ChevronUp size={12} style={{ marginLeft: 'auto' }} /> : <ChevronDown size={12} style={{ marginLeft: 'auto' }} />}
+              </p>
+              {notesOpen && <ul>{local.complianceNotes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
             </div>
           )}
-          {marketplace.guidelines.nextSteps && marketplace.guidelines.nextSteps.length > 0 && (
+          {visualSteps.length > 0 && (
             <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '12px 14px', marginTop: 10 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Image size={13} /> Next steps to complete this listing
+                <Image size={13} /> Visual assets to prepare
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {marketplace.guidelines.nextSteps.map((step, i) => (
+                {visualSteps.map((step, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
                     <CheckCircle size={13} style={{ flexShrink: 0, marginTop: 2, color: 'var(--text-dim)' }} />
                     {step}
@@ -283,13 +295,7 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
 
     // Additional text sections this marketplace requires (from nextSteps), excluding visual/external items.
     // These are generated in separate small batched calls so no single request risks a timeout.
-    const visualKeywords = ['icon', 'screenshot', 'image', 'video', 'demo', 'logo', 'png', 'jpg', 'jpeg', 'pixel', 'px', 'photo', 'recording']
-    const externalKeywords = ['url', 'link', 'website', 'prepare a live', 'prepare live', 'terms of service', 'privacy policy']
-    const isVisualOrExternal = (s) => {
-      const lower = s.toLowerCase()
-      return visualKeywords.some(k => lower.includes(k)) || externalKeywords.some(k => lower.includes(k))
-    }
-    const textSections = (g.nextSteps || []).filter(s => !isVisualOrExternal(s))
+    const textSections = (g.nextSteps || []).filter(s => !isVisualStep(s) && !isExternalStep(s))
 
     const appInfoBlock = `APP INFO:
 - App: ${appName} ${sysLine}
