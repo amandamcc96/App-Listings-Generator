@@ -37,6 +37,22 @@ function normalizeFeatures(features) {
   return features.map(featureToString).filter(Boolean)
 }
 
+// Section content should be a plain string, but the AI sometimes returns arrays/objects
+// (e.g. pricing plans). Convert any shape into readable plain text.
+function sectionContentToString(c) {
+  if (c == null) return ''
+  if (typeof c === 'string') return c
+  if (Array.isArray(c)) return c.map(sectionContentToString).filter(Boolean).join('\n\n')
+  if (typeof c === 'object') {
+    return Object.entries(c).map(([k, v]) => {
+      const label = k.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').replace(/^./, ch => ch.toUpperCase())
+      const val = typeof v === 'string' ? v : Array.isArray(v) ? v.map(x => (typeof x === 'string' ? x : sectionContentToString(x))).join(', ') : sectionContentToString(v)
+      return `${label}: ${val}`
+    }).join('\n')
+  }
+  return String(c)
+}
+
 // Classify marketplace nextSteps items: visual assets vs external links vs generatable text
 const VISUAL_KEYWORDS = ['icon', 'screenshot', 'image', 'video', 'demo', 'logo', 'png', 'jpg', 'jpeg', 'pixel', 'px', 'photo', 'recording']
 const EXTERNAL_KEYWORDS = ['url', 'link', 'website', 'prepare a live', 'prepare live', 'terms of service', 'privacy policy']
@@ -113,7 +129,7 @@ function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resul
   const copyAll = () => {
     let text = `MARKETPLACE: ${marketplace.name}\n\nTITLE:\n${local.title}\n\nSHORT DESCRIPTION:\n${local.shortDescription}\n\nLONG DESCRIPTION:\n${local.longDescription}\n\nFEATURES:\n${featuresDisplay.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nTAGS:\n${(local.tags || []).join(', ')}`
     for (const sec of additionalSections) {
-      text += `\n\n${sec.label.toUpperCase()}:\n${sec.content}`
+      text += `\n\n${sec.label.toUpperCase()}:\n${sectionContentToString(sec.content)}`
     }
     navigator.clipboard.writeText(text).catch(() => {})
     setCopied(true)
@@ -164,7 +180,7 @@ function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resul
           {additionalSections.map((sec, i) => (
             <div key={i} className="form-group">
               <label>{sec.label}</label>
-              <textarea value={sec.content || ''} onChange={e => updateSection(i, e.target.value)} style={{ minHeight: 80 }} />
+              <textarea value={sectionContentToString(sec.content)} onChange={e => updateSection(i, e.target.value)} style={{ minHeight: 80 }} />
             </div>
           ))}
 
@@ -219,6 +235,7 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
   const [formError, setFormError] = useState('')
   const [showAllPairs, setShowAllPairs] = useState(false)
   const cancelRef = useRef(false)
+  const abortRef = useRef(null)
 
   useEffect(() => { try { localStorage.setItem('gen_appName', JSON.stringify(appName)) } catch {} }, [appName])
   useEffect(() => { try { localStorage.setItem('gen_appVersion', JSON.stringify(appVersion)) } catch {} }, [appVersion])
@@ -337,10 +354,12 @@ Use your knowledge of both platforms to write an accurate factual listing. Retur
 {"title":"","shortDescription":"","longDescription":"","features":[],"tags":[],"complianceNotes":[]}`
 
     const callGenerate = async (prompt, maxTokens) => {
+      if (cancelRef.current) throw new Error('__cancelled__')
       const resp = await fetch('/.netlify/functions/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, maxTokens })
+        body: JSON.stringify({ prompt, maxTokens }),
+        signal: abortRef.current?.signal
       })
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: `Server error (${resp.status})` }))
@@ -355,6 +374,7 @@ Use your knowledge of both platforms to write an accurate factual listing. Retur
     // Calls 2+: additional sections in batches of 5, so each response stays small and fast
     const sections = []
     for (let b = 0; b < textSections.length; b += 5) {
+      if (cancelRef.current) throw new Error('__cancelled__')
       const batch = textSections.slice(b, b + 5)
       const sectionPrompt = `You are an expert app marketplace copywriter for Commercient, writing content for the "${appName}" listing on the ${mp.name} marketplace.
 
@@ -368,12 +388,19 @@ The short description is: ${data.shortDescription || appDesc}
 ${mp.name} requires the following additional listing content. Write each one:
 ${batch.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
+IMPORTANT: Each "content" value MUST be a single plain-text string. For lists (e.g. pricing plans, feature lists), write them as plain text with line breaks between items — NEVER as nested objects or arrays.
+
 Return ONLY valid JSON no preamble:
-{"sections":[{"label":"<short section name>","content":"<the generated content>"}]}`
+{"sections":[{"label":"<short section name>","content":"<the generated content as one plain-text string>"}]}`
       try {
         const res = await callGenerate(sectionPrompt, 1200)
-        if (Array.isArray(res.sections)) sections.push(...res.sections.filter(s => s && s.label))
+        if (Array.isArray(res.sections)) {
+          sections.push(...res.sections
+            .filter(s => s && s.label)
+            .map(s => ({ label: String(s.label), content: sectionContentToString(s.content) })))
+        }
       } catch (e) {
+        if (cancelRef.current || e.name === 'AbortError' || e.message === '__cancelled__') throw e
         sections.push({ label: `Sections ${b + 1}-${b + batch.length} (failed)`, content: `Generation failed: ${e.message}. Use Regenerate to retry.` })
       }
     }
@@ -447,6 +474,7 @@ Return ONLY valid JSON no preamble:
     setGenerating(true)
     setTab('output')
     cancelRef.current = false
+    abortRef.current = new AbortController()
     const newResults = { ...generatedResults }
     let done = 0
 
@@ -465,6 +493,7 @@ Return ONLY valid JSON no preamble:
           const data = await generateOne(pair, mp)
           newResults[key] = data
         } catch (e) {
+          if (cancelRef.current || e.name === 'AbortError' || e.message === '__cancelled__') break outer
           newResults[key] = { error: true, message: e.message }
         }
         setGeneratedResults({ ...newResults })
@@ -482,6 +511,8 @@ Return ONLY valid JSON no preamble:
     const pair = pool.find(p => p.label === label)
     const mp = marketplaces.find(m => m.id === mpId)
     if (!pair || !mp) return
+    cancelRef.current = false
+    abortRef.current = new AbortController()
     setGeneratedResults(prev => ({ ...prev, [key]: { pending: true } }))
     try {
       const data = await generateOne(pair, mp)
@@ -568,7 +599,7 @@ Return ONLY valid JSON no preamble:
             <div style={{ marginBottom: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                 <div className="loading-row" style={{ margin: 0 }}><div className="spinner" />{progress}</div>
-                <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => { cancelRef.current = true }}>
+                <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => { cancelRef.current = true; abortRef.current?.abort() }}>
                   <XCircle size={12} /> Stop
                 </button>
               </div>
