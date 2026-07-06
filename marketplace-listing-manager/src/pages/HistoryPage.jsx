@@ -14,6 +14,22 @@ function featureToString(f) {
   return String(f)
 }
 
+
+// Section content may be arrays/objects from older AI responses — convert to readable text
+function sectionContentToString(c) {
+  if (c == null) return ''
+  if (typeof c === 'string') return c
+  if (Array.isArray(c)) return c.map(sectionContentToString).filter(Boolean).join('\n\n')
+  if (typeof c === 'object') {
+    return Object.entries(c).map(([k, v]) => {
+      const label = k.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').replace(/^./, ch => ch.toUpperCase())
+      const val = typeof v === 'string' ? v : Array.isArray(v) ? v.map(x => (typeof x === 'string' ? x : sectionContentToString(x))).join(', ') : sectionContentToString(v)
+      return `${label}: ${val}`
+    }).join('\n')
+  }
+  return String(c)
+}
+
 function SavedListingCard({ entry, onDelete }) {
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -25,7 +41,7 @@ function SavedListingCard({ entry, onDelete }) {
   const copyAll = () => {
     let text = `MARKETPLACE: ${entry.marketplaceName}\n\nTITLE:\n${listing.title}\n\nSHORT DESCRIPTION:\n${listing.shortDescription}\n\nLONG DESCRIPTION:\n${listing.longDescription}\n\nFEATURES:\n${featuresDisplay.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nTAGS:\n${(listing.tags || []).join(', ')}`
     for (const sec of additionalSections) {
-      if (sec && sec.label) text += `\n\n${sec.label.toUpperCase()}:\n${sec.content || ''}`
+      if (sec && sec.label) text += `\n\n${sec.label.toUpperCase()}:\n${sectionContentToString(sec.content)}`
     }
     navigator.clipboard.writeText(text).catch(() => {})
     setCopied(true)
@@ -83,7 +99,7 @@ function SavedListingCard({ entry, onDelete }) {
             sec && sec.label ? (
               <div key={i} className="form-group">
                 <label>{sec.label}</label>
-                <textarea value={sec.content || ''} readOnly style={{ minHeight: 80, background: 'var(--bg)', cursor: 'default' }} />
+                <textarea value={sectionContentToString(sec.content)} readOnly style={{ minHeight: 80, background: 'var(--bg)', cursor: 'default' }} />
               </div>
             ) : null
           ))}
