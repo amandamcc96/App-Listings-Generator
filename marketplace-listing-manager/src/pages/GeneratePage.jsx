@@ -236,6 +236,17 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
   const [showAllPairs, setShowAllPairs] = useState(false)
   const cancelRef = useRef(false)
   const abortRef = useRef(null)
+  const knowledgeRef = useRef('')
+
+  const loadKnowledge = async () => {
+    try {
+      const resp = await fetch('/.netlify/functions/product-knowledge')
+      const kb = await resp.json()
+      knowledgeRef.current = (kb.content || '').slice(0, 8000)
+    } catch (e) {
+      knowledgeRef.current = ''
+    }
+  }
 
   useEffect(() => { try { localStorage.setItem('gen_appName', JSON.stringify(appName)) } catch {} }, [appName])
   useEffect(() => { try { localStorage.setItem('gen_appVersion', JSON.stringify(appVersion)) } catch {} }, [appVersion])
@@ -322,6 +333,20 @@ ${pair.erp ? `- ERP: ${pair.erp}` : ''}
 ${pair.crm ? `- CRM/App: ${pair.crm}` : ''}
 - Company: Commercient`
 
+    const kb = knowledgeRef.current
+    const knowledgeBlock = kb
+      ? `PRODUCT KNOWLEDGE BASE (the ONLY source of truth for product-specific facts):
+${kb}
+
+FACTUAL ACCURACY RULES:
+- Any specific factual claim about the product — pricing, plan names, synced objects and directions, setup steps, support channels, languages, certifications — MUST come from the PRODUCT KNOWLEDGE BASE above.
+- If a required piece of information is NOT in the knowledge base, write the placeholder [CONFIRM: <what is needed>] instead of inventing it. Example: [CONFIRM: pricing plans].
+- General, well-known facts about ${pair.erp || ''} ${pair.crm || ''} platforms themselves may be described from general knowledge, but nothing product-specific may be invented.`
+      : `FACTUAL ACCURACY RULES:
+- No product knowledge base is configured. Do NOT invent any specific product facts.
+- For pricing, plan names, exact synced-object lists, setup steps, support channels, or languages, write the placeholder [CONFIRM: <what is needed>] instead of inventing details. Example: [CONFIRM: pricing plans].
+- Describe the integration's purpose and typical capabilities in general, accurate terms only.`
+
     const toneBlock = `TONE AND LANGUAGE RULES:
 - Do NOT use any sales or marketing language.
 - Do NOT use phrases like "get started today", "work harder", "unlock", "supercharge", "revolutionize", "game-changing", "seamless", or any calls to action.
@@ -335,6 +360,8 @@ ${pair.crm ? `- CRM/App: ${pair.crm}` : ''}
 Generate a fully compliant listing for "${appName}" ${sysLine}, for the ${mp.name} marketplace.
 
 ${appInfoBlock}
+
+${knowledgeBlock}
 
 ${mp.name.toUpperCase()} GUIDELINES:
 ${guidelineLines}
@@ -379,6 +406,8 @@ Use your knowledge of both platforms to write an accurate factual listing. Retur
       const sectionPrompt = `You are an expert app marketplace copywriter for Commercient, writing content for the "${appName}" listing on the ${mp.name} marketplace.
 
 ${appInfoBlock}
+
+${knowledgeBlock}
 
 ${toneBlock}
 
@@ -475,6 +504,7 @@ Return ONLY valid JSON no preamble:
     setTab('output')
     cancelRef.current = false
     abortRef.current = new AbortController()
+    await loadKnowledge()
     const newResults = { ...generatedResults }
     let done = 0
 
@@ -513,6 +543,7 @@ Return ONLY valid JSON no preamble:
     if (!pair || !mp) return
     cancelRef.current = false
     abortRef.current = new AbortController()
+    await loadKnowledge()
     setGeneratedResults(prev => ({ ...prev, [key]: { pending: true } }))
     try {
       const data = await generateOne(pair, mp)
