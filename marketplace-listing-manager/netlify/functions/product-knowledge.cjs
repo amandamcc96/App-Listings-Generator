@@ -59,11 +59,30 @@ SETUP:
 - Typical timeline: 6-8 weeks for templated systems; 8-12+ weeks for highly customized implementations.
 - Four-stage delivery: Onboarding (~40 min) -> Installation (~1.5 hrs) -> Phase 1 ERP to CRM (2-10 weeks) -> Phase 2 CRM to ERP (2-10 weeks)
 
-SYNC PRICING:
-- Platform license: $29/month per individual transaction; bundles at lower per-unit prices
-- White-gloved/managed setup: $99/month
-- Elastic billing: set up as many or as few integrations as needed, pay only for what is used
-- Support and monitoring included
+SYNC PRICING (three cost components):
+
+1. SYNC SaaS Fee — monthly, per company instance. Priced by ERP tier × CRM edition:
+   - Tier 5 (QuickBooks, Xero, Sage 50): $399–$1,199/month
+   - Tier 4 (Sage 100/300, MYOB, JobBoss, Deltek): $449–$1,949/month
+   - Tier 3 (NetSuite, Dynamics BC/GP/NAV, SAP B1, Syspro, Epicor, Acumatica): $499–$1,999/month
+   - Tier 2 (Infor LN/M3, Abas, Dynamics AX, Sage Intacct): $699–$1,999/month
+   - Tier 1 (highest complexity): custom pricing
+   - Low end of each range = Salesforce Essentials / HubSpot Starter; high end = Salesforce Unlimited
+   - Includes 3 GB/month data usage; overage $10–$15 per GB/month
+   - Contract discounts: 8% for 24 months, 15% for 36 months
+   - Higher sync frequency increases the fee
+
+2. Success Plan Fee — one-time, per instance:
+   - Phase 1 only (ERP → CRM): $5,489
+   - Phase 2 only (CRM → ERP): $5,489
+   - Bi-directional (both phases): $8,989
+   - Additional instances: 50% discount on both SaaS and Success Plan fees
+
+3. Annual Success Plan Fee — recurring:
+   - Standard tier: $399–$929/year (scales across 8 tiers)
+   - Premier tier: $189–$799/year (scales across 8 tiers)
+
+Note: Pricing from internal quoting tool rate tables as of July 2026. Confirm with Sales before publishing exact figures, especially GB overage rate ($10 vs $15) and Annual Success Plan tier definitions.
 
 ========================================
 PRODUCT: Commercient AI
