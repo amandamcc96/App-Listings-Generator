@@ -1,6 +1,87 @@
-import { useState } from 'react'
-import { Trash2, RefreshCw, ExternalLink, Loader, Plus, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Trash2, RefreshCw, ExternalLink, Loader, Plus, X, BookOpen, Check } from 'lucide-react'
 import { mergeGuidelineFragments, fetchPage, extractPage } from '../components/AddMarketplaceModal'
+
+function ProductKnowledgeCard() {
+  const [content, setContent] = useState('')
+  const [updatedAt, setUpdatedAt] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    fetch('/.netlify/functions/product-knowledge')
+      .then(r => r.json())
+      .then(kb => { setContent(kb.content || ''); setUpdatedAt(kb.updatedAt || null) })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const save = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      const resp = await fetch('/.netlify/functions/product-knowledge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content })
+      })
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: 'Save failed' }))
+        throw new Error(err.error || 'Save failed')
+      }
+      const kb = await resp.json()
+      setUpdatedAt(kb.updatedAt)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <BookOpen size={14} /> Product knowledge base
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.6 }}>
+        The factual source of truth for all generated listings. The AI will only state product facts (pricing, synced objects, setup, support, languages) that appear here — anything missing gets a <span style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>[CONFIRM: ...]</span> placeholder instead of being invented. Shared across all users.
+      </p>
+      {loading ? (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Loader size={13} style={{ animation: 'spin 0.65s linear infinite' }} /> Loading...
+        </div>
+      ) : (
+        <>
+          <textarea
+            value={content}
+            onChange={e => setContent(e.target.value)}
+            placeholder={"Example structure:\n\nPRODUCT: Commercient SYNC\nWhat it does: ...\nSynced objects and directions: Accounts (ERP -> CRM), Invoices (ERP -> CRM), Orders (bidirectional), ...\nPricing: ...\nSetup summary: ...\nSupport: ...\nLanguages: ..."}
+            style={{ minHeight: 220, fontFamily: 'var(--mono)', fontSize: 12, lineHeight: 1.6, width: '100%' }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+            <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
+              {saved ? <Check size={12} /> : null}
+              {saving ? 'Saving...' : saved ? 'Saved!' : 'Save knowledge base'}
+            </button>
+            <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+              {content.length.toLocaleString()} characters
+              {updatedAt ? ` \u00B7 Last updated ${new Date(updatedAt).toLocaleDateString()} ${new Date(updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+            </span>
+          </div>
+          {error && (
+            <div style={{ background: 'var(--red-bg)', color: 'var(--red)', padding: '8px 12px', borderRadius: 'var(--radius)', fontSize: 12, marginTop: 10 }}>
+              {error}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
 
 // Read + extract a list of URLs one page at a time, reporting progress. Returns merged guidelines.
 async function scanUrls(name, urlList, onStatus) {
@@ -249,6 +330,8 @@ export default function SettingsPage({ customMarketplaces, onDeleteCustom, onCle
           </>
         )}
       </div>
+
+      <ProductKnowledgeCard />
 
       <div className="card">
         <div className="card-title">Automatic guideline rescanning</div>
