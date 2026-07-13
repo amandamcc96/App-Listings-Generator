@@ -6,28 +6,50 @@ const ERPS = ["AFAS Software","Abas","AccountsIQ","Acumatica","Agility ERP","App
 const CRMS_APPS = ["1WorldSync","ActiveCampaign","Adobe Campaign","Adobe Commerce","Adobe Experience Manager","Adobe Marketo Engage","Advyzon","Agentforce Field Service and Operations","Amazon Seller Central","Amazon Vendor Central","Anaplan","Applied Indio","Apptivo","Aspire","Autotask PSA","Benelinx","BigChange","BigCommerce","Blackbaud CRM","Briostack","CINC Systems","ClickUp","Clio","Close CRM","ConnectWise","Copper","Cotality DASH","Coupa","Creatio","Cybersource","DocuWare","eBay","eClinicalWorks","Expensify","FedEx Ship Manager","Finale Inventory","Fishbowl","Flex Inventory Management","Freshworks Freshdesk","Freshworks Freshsales","Fullbay","Genesys","GiveCampus","GoHighLevel","Housecall Pro","HubSpot Marketing Hub","HubSpot Sales Hub","HubSpot Service Hub","Hubspot","Infor CloudSuite","Insightly","Inventory Planner by Sage","Jobber","Kantata","Katana","Keap","Klaviyo","Mews","Microsoft Dataverse","Microsoft Dynamics 365","Microsoft Dynamics 365 Field Service","Microsoft SharePoint","Microsoft SQL Server","Mitchell RepairCenter","Mixpanel","NCR Voyix","Neon One","NetHunt","NetSuite SuiteCommerce","NuORDER by Lightspeed","OPEX Cortex","OneAdvanced","Ontraport","OptimoRoute","PatronManager","Pipedrive","Point of Rental","PTC ServiceMax","Quickbase","ROLLER","Recurly","Replicon","Rev.io","RingCentral","Rolldog","SAP Commerce Cloud","SAP CRM","SPS Commerce","Sage CRM","Sage Estimating","Sage Fixed Assets","Sage HR","Sage Inventory Advisor","Sage Network","Sage Payroll","Sage People","Sage Timeslips","Sage Workplace","Salesforce","Salesforce Commerce Cloud","Salesforce Data 360","Salesforce Sales Cloud","Salesforce Service Cloud","Salesloft","SecturaFAB","Sellsy","ServiceNow","ServiceTitan","ShipStation","Shopify","Shopware","Smartlead","Smartsheet","Squarespace","Stack Internal","Stella Source","Stripe","SugarCRM","SuiteCRM","Trimble Supplier Xchange","Tripleseat","TrueCommerce Nexternal","UKG Pro","UPS","Veeva","Voyado","Walmart Marketplace","Wayfair","Wealthbox","Wix","WizCommerce","WooCommerce","Wrike","Xactly","Zendesk","Zoho","Zoho Analytics","Zoho CRM","Zoho Desk","Zoho Expense","Zoho Field Service Management","Zoho Inventory","Zoom Contact Center","Zoominfo","Zuora","Zuper","inFlow","isolved","monday.com"]
 
 // Splits the knowledge base into labeled blocks on "====...====\nHEADER\n====...====" dividers,
-// so each generation call can pull only the blocks it actually needs instead of the whole document.
+// then further splits each block on ALL-CAPS subheadings (e.g. "SYNC PRICING (...):") so that
+// selection can pull just a pricing table or support section instead of a whole 5,000-char product block.
 function parseKnowledgeBlocks(text) {
   if (!text) return []
-  const blocks = []
+  const topBlocks = []
   const dividerRe = /={5,}\s*\n(.+?)\n={5,}/g
-  let lastIndex = 0
-  let lastHeader = 'COMPANY OVERVIEW'
-  let match
   const matches = [...text.matchAll(dividerRe)]
-  if (matches.length === 0) return [{ header: 'KNOWLEDGE BASE', content: text.trim() }]
-  // Preamble before the first divider (company intro)
-  if (matches[0].index > 0) {
-    const pre = text.slice(0, matches[0].index).trim()
-    if (pre) blocks.push({ header: 'COMPANY OVERVIEW', content: pre })
+  if (matches.length === 0) {
+    topBlocks.push({ header: 'KNOWLEDGE BASE', content: text.trim() })
+  } else {
+    if (matches[0].index > 0) {
+      const pre = text.slice(0, matches[0].index).trim()
+      if (pre) topBlocks.push({ header: 'COMPANY OVERVIEW', content: pre })
+    }
+    for (let i = 0; i < matches.length; i++) {
+      const header = matches[i][1].trim()
+      const contentStart = matches[i].index + matches[i][0].length
+      const contentEnd = i + 1 < matches.length ? matches[i + 1].index : text.length
+      const content = text.slice(contentStart, contentEnd).trim()
+      if (content) topBlocks.push({ header, content })
+    }
   }
-  for (let i = 0; i < matches.length; i++) {
-    match = matches[i]
-    const header = match[1].trim()
-    const contentStart = match.index + match[0].length
-    const contentEnd = i + 1 < matches.length ? matches[i + 1].index : text.length
-    const content = text.slice(contentStart, contentEnd).trim()
-    if (content) blocks.push({ header, content })
+  // Second pass: split each top block on ALL-CAPS subheading lines like "SYNC PRICING (three cost components):"
+  const subheadRe = /^[A-Z][A-Z0-9&/,.'-]*(?:\s+[A-Z0-9&/,.'-]+)*(?:\s*\([^)]*\))?:\s*$/
+  const blocks = []
+  for (const tb of topBlocks) {
+    const lines = tb.content.split('\n')
+    let currentSub = null
+    let buf = []
+    const flush = () => {
+      const body = buf.join('\n').trim()
+      if (!body) return
+      blocks.push({ header: currentSub ? `${tb.header} — ${currentSub}` : tb.header, content: currentSub ? `${currentSub}\n${body}` : body })
+    }
+    for (const line of lines) {
+      if (subheadRe.test(line.trim())) {
+        flush()
+        currentSub = line.trim().replace(/:$/, '')
+        buf = []
+      } else {
+        buf.push(line)
+      }
+    }
+    flush()
   }
   return blocks
 }
@@ -117,6 +139,59 @@ const VISUAL_KEYWORDS = ['icon', 'screenshot', 'image', 'video', 'demo', 'logo',
 const EXTERNAL_KEYWORDS = ['url', 'link', 'website', 'prepare a live', 'prepare live', 'terms of service', 'privacy policy']
 const isVisualStep = (s) => VISUAL_KEYWORDS.some(k => String(s).toLowerCase().includes(k))
 const isExternalStep = (s) => EXTERNAL_KEYWORDS.some(k => String(s).toLowerCase().includes(k))
+
+// Canonical section buckets. Multiple near-duplicate checklist items (e.g. three different
+// pricing-related lines from merged guideline scans) collapse into ONE generated section each.
+// First matching bucket wins, so order matters (pricing before featuresList, since a pricing
+// item may mention "features list" inside it).
+const SECTION_BUCKETS = [
+  { id: 'pricing', label: 'Pricing plans', match: ['pricing', 'price plan'] },
+  { id: 'sharedData', label: 'Shared data', match: ['shared data', 'scopes and data', 'data objects the app'] },
+  { id: 'platFeatures', label: 'Platform features the app works with', match: ['features the app works with', 'hubspot features', 'salesforce features'] },
+  { id: 'tools', label: 'Other tools the app integrates with', match: ['other tools', 'tools the app integrates'] },
+  { id: 'languages', label: 'Languages', match: ['language'] },
+  { id: 'searchTerms', label: 'Search terms', match: ['search term', 'keyword'] },
+  { id: 'categories', label: 'App categories', match: ['categor'] },
+  // Items that duplicate core listing fields — dropped, since the core output already covers them
+  { id: 'drop', label: null, match: ['app overview', 'overview copy', 'tagline', 'public app name', 'company name', 'features list', 'app name'] },
+  // Trivially derivable — auto-filled without an AI call
+  { id: 'urlPath', label: 'URL path', match: ['url path'], autofill: true }
+]
+
+// Collapse raw checklist items into curated sections: one entry per bucket (instructions merged),
+// unmatched items pass through as their own sections.
+function curateSections(rawItems) {
+  const buckets = new Map()
+  const passthrough = []
+  for (const item of rawItems) {
+    const lower = String(item).toLowerCase()
+    const bucket = SECTION_BUCKETS.find(b => b.match.some(k => lower.includes(k)))
+    if (!bucket) { passthrough.push({ label: null, instruction: item }); continue }
+    if (bucket.id === 'drop') continue
+    if (!buckets.has(bucket.id)) buckets.set(bucket.id, { id: bucket.id, label: bucket.label, autofill: !!bucket.autofill, instructions: [] })
+    buckets.get(bucket.id).instructions.push(item)
+  }
+  const curated = [...buckets.values()].map(b => ({ id: b.id, label: b.label, autofill: b.autofill, instruction: b.instructions.join(' | ') }))
+  return { curated, passthrough }
+}
+
+function slugify(s) {
+  return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+}
+
+// Final safety net: drop sections whose normalized labels duplicate or contain one another
+function dedupeSections(sections) {
+  const seen = []
+  const out = []
+  for (const sec of sections) {
+    if (!sec || !sec.label) continue
+    const norm = String(sec.label).toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (seen.some(s => s === norm || s.includes(norm) || norm.includes(s))) continue
+    seen.push(norm)
+    out.push(sec)
+  }
+  return out
+}
 
 function SystemPicker({ type, selected, onToggle, noSystem, onToggleNone }) {
   const [search, setSearch] = useState('')
@@ -380,9 +455,12 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
       ? `\n${mp.name.toUpperCase()} FEATURE FORMAT (follow this EXACTLY for every item in the features array):\n${g.featureRequirements}\nEach feature you write must match this required structure.\n`
       : ''
 
-    // Additional text sections this marketplace requires (from nextSteps), excluding visual/external items.
-    // These are generated in separate small batched calls so no single request risks a timeout.
-    const textSections = (g.nextSteps || []).filter(s => !isVisualStep(s) && !isExternalStep(s))
+    // Curate the marketplace's checklist into a clean section plan:
+    // near-duplicates collapse into one bucket each, items duplicating core fields are dropped,
+    // trivially derivable items are auto-filled without an AI call.
+    const rawTextSections = (g.nextSteps || []).filter(s => !isVisualStep(s) && !isExternalStep(s))
+    const { curated, passthrough } = curateSections(rawTextSections)
+    const aiSections = [...curated.filter(c => !c.autofill), ...passthrough]
 
     const appInfoBlock = `APP INFO:
 - App: ${appName} ${sysLine}
@@ -461,17 +539,16 @@ Use your knowledge of both platforms to write an accurate factual listing. Retur
     }
 
     // Call 1: the core listing
-    const data = await callGenerate(corePrompt, 1500)
+    const data = await callGenerate(corePrompt, 1100)
 
-    // Calls 2+: additional sections in batches of 5, so each response stays small and fast
+    // Calls 2+: curated sections in batches of 3, each with its own topic-scoped knowledge excerpt
     const sections = []
-    for (let b = 0; b < textSections.length; b += 5) {
+    for (let b = 0; b < aiSections.length; b += 3) {
       if (cancelRef.current) throw new Error('__cancelled__')
-      const batch = textSections.slice(b, b + 5)
-      // Each batch gets its own small knowledge excerpt scoped to what these specific sections ask for
-      // (e.g. a "pricing" section pulls pricing blocks, a "support" section pulls support blocks)
-      const batchQuery = `${appName} ${pair.erp || ''} ${pair.crm || ''} ${batch.join(' ')}`
-      const batchKnowledge = selectKnowledge(blocks, batchQuery, 2000)
+      const batch = aiSections.slice(b, b + 3)
+      const hasPricing = batch.some(s => s.id === 'pricing')
+      const batchQuery = `${appName} ${pair.erp || ''} ${pair.crm || ''} ${batch.map(s => `${s.label || ''} ${s.instruction}`).join(' ')}`
+      const batchKnowledge = selectKnowledge(blocks, batchQuery, 2200)
       const sectionKnowledgeBlock = buildKnowledgeBlock(batchKnowledge)
       const sectionPrompt = `You are an expert app marketplace copywriter for Commercient, writing content for the "${appName}" listing on the ${mp.name} marketplace.
 
@@ -484,15 +561,16 @@ ${toneBlock}
 The generated listing title is: ${data.title || appName}
 The short description is: ${data.shortDescription || appDesc}
 
-${mp.name} requires the following additional listing content. Write each one:
-${batch.map((s, i) => `${i + 1}. ${s}`).join('\n')}
+${mp.name} requires the following additional listing content. Write ONE section per numbered item, using the given section name as the label EXACTLY (do not invent extra sections):
+${batch.map((s, i) => `${i + 1}. ${s.label ? `${s.label} — ` : ''}${s.instruction}`).join('\n')}
 
 IMPORTANT: Each "content" value MUST be a single plain-text string. For lists (e.g. pricing plans, feature lists), write them as plain text with line breaks between items — NEVER as nested objects or arrays.
+${hasPricing ? `PRICING RULE: Use ONLY the exact dollar amounts and plan names from the PRODUCT KNOWLEDGE BASE EXCERPT above. Every price you write must appear verbatim in the excerpt. If a required figure is not in the excerpt, write [CONFIRM: <figure needed>]. Never estimate, round differently, or invent a price.` : ''}
 
 Return ONLY valid JSON no preamble:
-{"sections":[{"label":"<short section name>","content":"<the generated content as one plain-text string>"}]}`
+{"sections":[{"label":"<the given section name>","content":"<the generated content as one plain-text string>"}]}`
       try {
-        const res = await callGenerate(sectionPrompt, 1200)
+        const res = await callGenerate(sectionPrompt, 900)
         if (Array.isArray(res.sections)) {
           sections.push(...res.sections
             .filter(s => s && s.label)
@@ -503,7 +581,13 @@ Return ONLY valid JSON no preamble:
         sections.push({ label: `Sections ${b + 1}-${b + batch.length} (failed)`, content: `Generation failed: ${e.message}. Use Regenerate to retry.` })
       }
     }
-    data.additionalSections = sections
+
+    // Auto-filled sections (no AI call needed) + generated sections, then a final dedup pass
+    const autofilled = curated.filter(c => c.autofill).map(c => {
+      if (c.id === 'urlPath') return { label: 'URL path', content: slugify(data.title || appName) }
+      return null
+    }).filter(Boolean)
+    data.additionalSections = dedupeSections([...sections, ...autofilled])
 
     if (data.longDescription) {
       data.longDescription = data.longDescription.replace(/<[^>]*>/g, '').replace(/#{1,6}\s/g, '').replace(/\*\*/g, '').trim()
