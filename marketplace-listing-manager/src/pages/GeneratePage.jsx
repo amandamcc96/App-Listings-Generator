@@ -5,6 +5,65 @@ const ERPS = ["AFAS Software","Abas","AccountsIQ","Acumatica","Agility ERP","App
 
 const CRMS_APPS = ["1WorldSync","ActiveCampaign","Adobe Campaign","Adobe Commerce","Adobe Experience Manager","Adobe Marketo Engage","Advyzon","Agentforce Field Service and Operations","Amazon Seller Central","Amazon Vendor Central","Anaplan","Applied Indio","Apptivo","Aspire","Autotask PSA","Benelinx","BigChange","BigCommerce","Blackbaud CRM","Briostack","CINC Systems","ClickUp","Clio","Close CRM","ConnectWise","Copper","Cotality DASH","Coupa","Creatio","Cybersource","DocuWare","eBay","eClinicalWorks","Expensify","FedEx Ship Manager","Finale Inventory","Fishbowl","Flex Inventory Management","Freshworks Freshdesk","Freshworks Freshsales","Fullbay","Genesys","GiveCampus","GoHighLevel","Housecall Pro","HubSpot Marketing Hub","HubSpot Sales Hub","HubSpot Service Hub","Hubspot","Infor CloudSuite","Insightly","Inventory Planner by Sage","Jobber","Kantata","Katana","Keap","Klaviyo","Mews","Microsoft Dataverse","Microsoft Dynamics 365","Microsoft Dynamics 365 Field Service","Microsoft SharePoint","Microsoft SQL Server","Mitchell RepairCenter","Mixpanel","NCR Voyix","Neon One","NetHunt","NetSuite SuiteCommerce","NuORDER by Lightspeed","OPEX Cortex","OneAdvanced","Ontraport","OptimoRoute","PatronManager","Pipedrive","Point of Rental","PTC ServiceMax","Quickbase","ROLLER","Recurly","Replicon","Rev.io","RingCentral","Rolldog","SAP Commerce Cloud","SAP CRM","SPS Commerce","Sage CRM","Sage Estimating","Sage Fixed Assets","Sage HR","Sage Inventory Advisor","Sage Network","Sage Payroll","Sage People","Sage Timeslips","Sage Workplace","Salesforce","Salesforce Commerce Cloud","Salesforce Data 360","Salesforce Sales Cloud","Salesforce Service Cloud","Salesloft","SecturaFAB","Sellsy","ServiceNow","ServiceTitan","ShipStation","Shopify","Shopware","Smartlead","Smartsheet","Squarespace","Stack Internal","Stella Source","Stripe","SugarCRM","SuiteCRM","Trimble Supplier Xchange","Tripleseat","TrueCommerce Nexternal","UKG Pro","UPS","Veeva","Voyado","Walmart Marketplace","Wayfair","Wealthbox","Wix","WizCommerce","WooCommerce","Wrike","Xactly","Zendesk","Zoho","Zoho Analytics","Zoho CRM","Zoho Desk","Zoho Expense","Zoho Field Service Management","Zoho Inventory","Zoom Contact Center","Zoominfo","Zuora","Zuper","inFlow","isolved","monday.com"]
 
+// Splits the knowledge base into labeled blocks on "====...====\nHEADER\n====...====" dividers,
+// so each generation call can pull only the blocks it actually needs instead of the whole document.
+function parseKnowledgeBlocks(text) {
+  if (!text) return []
+  const blocks = []
+  const dividerRe = /={5,}\s*\n(.+?)\n={5,}/g
+  let lastIndex = 0
+  let lastHeader = 'COMPANY OVERVIEW'
+  let match
+  const matches = [...text.matchAll(dividerRe)]
+  if (matches.length === 0) return [{ header: 'KNOWLEDGE BASE', content: text.trim() }]
+  // Preamble before the first divider (company intro)
+  if (matches[0].index > 0) {
+    const pre = text.slice(0, matches[0].index).trim()
+    if (pre) blocks.push({ header: 'COMPANY OVERVIEW', content: pre })
+  }
+  for (let i = 0; i < matches.length; i++) {
+    match = matches[i]
+    const header = match[1].trim()
+    const contentStart = match.index + match[0].length
+    const contentEnd = i + 1 < matches.length ? matches[i + 1].index : text.length
+    const content = text.slice(contentStart, contentEnd).trim()
+    if (content) blocks.push({ header, content })
+  }
+  return blocks
+}
+
+// Always-relevant blocks worth including regardless of topic match (naming rules, contact info) — kept short
+const ALWAYS_INCLUDE_HEADERS = ['NAMING AND MESSAGING RULES', 'COMPANY OVERVIEW']
+
+// Score a block by how many query terms appear in its header+content, then return the
+// best-matching blocks concatenated, capped to maxChars so every call stays small and fast.
+function selectKnowledge(blocks, queryText, maxChars) {
+  if (!blocks.length) return ''
+  const STOPWORDS = new Set(['commercient', 'company', 'product', 'the', 'and', 'for', 'with', 'that', 'this'])
+  const terms = String(queryText).toLowerCase().match(/[a-z0-9]{3,}/g) || []
+  const termSet = [...new Set(terms)].filter(t => !STOPWORDS.has(t))
+  const scored = blocks.map(b => {
+    const hay = (b.header + ' ' + b.content).toLowerCase()
+    let score = termSet.reduce((acc, t) => acc + (hay.includes(t) ? 1 : 0), 0)
+    if (ALWAYS_INCLUDE_HEADERS.some(h => b.header.toUpperCase().includes(h))) score += 0.5
+    return { ...b, score }
+  }).sort((a, b) => b.score - a.score)
+
+  let out = ''
+  let tookAny = false
+  for (const b of scored) {
+    if (b.score <= 0 && tookAny) break // once relevant matches run out, stop
+    const piece = `[${b.header}]\n${b.content}\n\n`
+    if (out.length + piece.length > maxChars) {
+      if (!tookAny) { out = piece.slice(0, maxChars); tookAny = true } // ensure at least something fits
+      continue // this block is too big for remaining space — skip it, keep trying smaller ones
+    }
+    out += piece
+    tookAny = true
+  }
+  return out.trim()
+}
+
 // Guarantee a string fits within max chars, cutting at a sentence boundary when possible, else a word boundary
 function fitText(text, max) {
   if (!text || typeof max !== 'number' || max <= 0 || text.length <= max) return { text, trimmed: false }
@@ -236,15 +295,15 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
   const [showAllPairs, setShowAllPairs] = useState(false)
   const cancelRef = useRef(false)
   const abortRef = useRef(null)
-  const knowledgeRef = useRef('')
+  const knowledgeBlocksRef = useRef([])
 
   const loadKnowledge = async () => {
     try {
       const resp = await fetch('/.netlify/functions/product-knowledge')
       const kb = await resp.json()
-      knowledgeRef.current = (kb.content || '').slice(0, 8000)
+      knowledgeBlocksRef.current = parseKnowledgeBlocks(kb.content || '')
     } catch (e) {
-      knowledgeRef.current = ''
+      knowledgeBlocksRef.current = []
     }
   }
 
@@ -333,19 +392,25 @@ ${pair.erp ? `- ERP: ${pair.erp}` : ''}
 ${pair.crm ? `- CRM/App: ${pair.crm}` : ''}
 - Company: Commercient`
 
-    const kb = knowledgeRef.current
-    const knowledgeBlock = kb
-      ? `PRODUCT KNOWLEDGE BASE (the ONLY source of truth for product-specific facts):
+    // Pull only the knowledge-base blocks relevant to THIS listing (product name, app description,
+    // ERP/CRM names) instead of injecting the entire knowledge base into every call — keeps each
+    // request small and fast while still grounding every fact.
+    const blocks = knowledgeBlocksRef.current
+    const coreQuery = `${appName} ${appDesc} ${pair.erp || ''} ${pair.crm || ''} ${mp.name}`
+    const coreKnowledge = selectKnowledge(blocks, coreQuery, 3500)
+    const buildKnowledgeBlock = (kb) => kb
+      ? `PRODUCT KNOWLEDGE BASE EXCERPT (the ONLY source of truth for product-specific facts):
 ${kb}
 
 FACTUAL ACCURACY RULES:
-- Any specific factual claim about the product — pricing, plan names, synced objects and directions, setup steps, support channels, languages, certifications — MUST come from the PRODUCT KNOWLEDGE BASE above.
-- If a required piece of information is NOT in the knowledge base, write the placeholder [CONFIRM: <what is needed>] instead of inventing it. Example: [CONFIRM: pricing plans].
+- Any specific factual claim about the product — pricing, plan names, synced objects and directions, setup steps, support channels, languages, certifications — MUST come from the PRODUCT KNOWLEDGE BASE EXCERPT above.
+- If a required piece of information is NOT in the excerpt, write the placeholder [CONFIRM: <what is needed>] instead of inventing it. Example: [CONFIRM: pricing plans].
 - General, well-known facts about ${pair.erp || ''} ${pair.crm || ''} platforms themselves may be described from general knowledge, but nothing product-specific may be invented.`
       : `FACTUAL ACCURACY RULES:
 - No product knowledge base is configured. Do NOT invent any specific product facts.
 - For pricing, plan names, exact synced-object lists, setup steps, support channels, or languages, write the placeholder [CONFIRM: <what is needed>] instead of inventing details. Example: [CONFIRM: pricing plans].
 - Describe the integration's purpose and typical capabilities in general, accurate terms only.`
+    const knowledgeBlock = buildKnowledgeBlock(coreKnowledge)
 
     const toneBlock = `TONE AND LANGUAGE RULES:
 - Do NOT use any sales or marketing language.
@@ -403,11 +468,16 @@ Use your knowledge of both platforms to write an accurate factual listing. Retur
     for (let b = 0; b < textSections.length; b += 5) {
       if (cancelRef.current) throw new Error('__cancelled__')
       const batch = textSections.slice(b, b + 5)
+      // Each batch gets its own small knowledge excerpt scoped to what these specific sections ask for
+      // (e.g. a "pricing" section pulls pricing blocks, a "support" section pulls support blocks)
+      const batchQuery = `${appName} ${pair.erp || ''} ${pair.crm || ''} ${batch.join(' ')}`
+      const batchKnowledge = selectKnowledge(blocks, batchQuery, 2000)
+      const sectionKnowledgeBlock = buildKnowledgeBlock(batchKnowledge)
       const sectionPrompt = `You are an expert app marketplace copywriter for Commercient, writing content for the "${appName}" listing on the ${mp.name} marketplace.
 
 ${appInfoBlock}
 
-${knowledgeBlock}
+${sectionKnowledgeBlock}
 
 ${toneBlock}
 
@@ -511,25 +581,41 @@ Return ONLY valid JSON no preamble:
     setGeneratedPairs(currentPairs)
     setGeneratedMpIds([...selMps])
 
-    outer:
+    // Flatten into a job queue and process several listings concurrently (instead of one at a time).
+    // Each listing is still several small, fast calls — running 3 listings in parallel cuts total
+    // batch time roughly 3x without making any single call larger or slower.
+    const jobs = []
     for (const pair of currentPairs) {
       for (const mp of mps) {
-        if (cancelRef.current) break outer
-        done++
+        jobs.push({ pair, mp, key: `${pair.label}||${mp.id}` })
+      }
+    }
+    const CONCURRENCY = 3
+    let nextIndex = 0
+
+    const worker = async () => {
+      while (true) {
+        if (cancelRef.current) return
+        const i = nextIndex++
+        if (i >= jobs.length) return
+        const { pair, mp, key } = jobs[i]
         setProgress(`Generating ${pair.label} \u00D7 ${mp.name}\u2026 (${done}/${total})`)
-        setProgressPct(Math.round((done - 1) / total * 100))
-        const key = `${pair.label}||${mp.id}`
         try {
           const data = await generateOne(pair, mp)
           newResults[key] = data
         } catch (e) {
-          if (cancelRef.current || e.name === 'AbortError' || e.message === '__cancelled__') break outer
+          if (cancelRef.current || e.name === 'AbortError' || e.message === '__cancelled__') return
           newResults[key] = { error: true, message: e.message }
         }
+        done++
         setGeneratedResults({ ...newResults })
         setProgressPct(Math.round(done / total * 100))
+        setProgress(`Generating\u2026 (${done}/${total})`)
       }
     }
+
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, () => worker()))
+
     setGenerating(false)
     setProgress('')
     setProgressPct(0)
