@@ -35,11 +35,18 @@ function SavedListingCard({ entry, onDelete }) {
   const [copied, setCopied] = useState(false)
   const listing = entry.listing
 
-  const featuresDisplay = (listing.features || []).map(featureToString).filter(Boolean)
+  const rawFeatures = (listing.features || []).filter(Boolean)
   const additionalSections = listing.additionalSections || []
 
+  const featuresText = rawFeatures.map((f, i) => {
+    if (f && typeof f === 'object' && (f.name || f.description)) {
+      return `Feature ${i + 1}\nName: ${f.name || ''}\nDescription: ${f.description || ''}`
+    }
+    return `Feature ${i + 1}: ${featureToString(f)}`
+  }).join('\n\n')
+
   const copyAll = () => {
-    let text = `MARKETPLACE: ${entry.marketplaceName}\n\nTITLE:\n${listing.title}\n\nSHORT DESCRIPTION:\n${listing.shortDescription}\n\nLONG DESCRIPTION:\n${listing.longDescription}\n\nFEATURES:\n${featuresDisplay.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nTAGS:\n${(listing.tags || []).join(', ')}`
+    let text = `MARKETPLACE: ${entry.marketplaceName}\n\nTITLE:\n${listing.title}\n\nSHORT DESCRIPTION:\n${listing.shortDescription}\n\nLONG DESCRIPTION:\n${listing.longDescription}\n\nFEATURES:\n${featuresText}\n\nTAGS:\n${(listing.tags || []).join(', ')}`
     for (const sec of additionalSections) {
       if (sec && sec.label) text += `\n\n${sec.label.toUpperCase()}:\n${sectionContentToString(sec.content)}`
     }
@@ -88,8 +95,18 @@ function SavedListingCard({ entry, onDelete }) {
             <textarea value={listing.longDescription || ''} readOnly style={{ minHeight: 140, background: 'var(--bg)', cursor: 'default' }} />
           </div>
           <div className="form-group">
-            <label>Features</label>
-            <textarea value={featuresDisplay.join('\n')} readOnly style={{ minHeight: 80, background: 'var(--bg)', cursor: 'default' }} />
+            <label>Features ({rawFeatures.length})</label>
+            {rawFeatures.map((f, i) => {
+              const isObj = f && typeof f === 'object' && (f.name || f.description)
+              if (isObj) return (
+                <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 12px', marginBottom: 8, background: 'var(--bg-surface)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Feature {i + 1}</div>
+                  <div className="form-group" style={{ marginBottom: 6 }}><label style={{ fontSize: 11 }}>Name</label><input value={f.name || ''} readOnly style={{ background: 'var(--bg)', cursor: 'default', fontSize: 12 }} /></div>
+                  <div className="form-group" style={{ marginBottom: 0 }}><label style={{ fontSize: 11 }}>Description</label><textarea value={f.description || ''} readOnly style={{ minHeight: 60, background: 'var(--bg)', cursor: 'default', fontSize: 12 }} /></div>
+                </div>
+              )
+              return <textarea key={i} value={featureToString(f)} readOnly style={{ minHeight: 48, marginBottom: 6, fontSize: 12, background: 'var(--bg)', cursor: 'default' }} />
+            })}
           </div>
           <div className="form-group">
             <label>Tags</label>

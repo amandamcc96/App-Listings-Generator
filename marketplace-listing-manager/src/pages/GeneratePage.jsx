@@ -256,12 +256,18 @@ function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resul
   const set = (k, v) => setLocal(r => ({ ...r, [k]: v }))
   const g = marketplace.guidelines
 
-  const featuresDisplay = normalizeFeatures(local.features)
+  const featuresDisplay = Array.isArray(local.features) ? local.features.filter(Boolean) : []
   const additionalSections = local.additionalSections || []
   const visualSteps = (marketplace.guidelines.nextSteps || []).filter(isVisualStep)
 
   const copyAll = () => {
-    let text = `MARKETPLACE: ${marketplace.name}\n\nTITLE:\n${local.title}\n\nSHORT DESCRIPTION:\n${local.shortDescription}\n\nLONG DESCRIPTION:\n${local.longDescription}\n\nFEATURES:\n${featuresDisplay.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nTAGS:\n${(local.tags || []).join(', ')}`
+    const featuresText = featuresDisplay.map((f, i) => {
+      if (f && typeof f === 'object' && (f.name || f.description)) {
+        return `Feature ${i + 1}\nName: ${f.name || ''}\nDescription: ${f.description || ''}`
+      }
+      return `Feature ${i + 1}: ${featureToString(f)}`
+    }).join('\n\n')
+    let text = `MARKETPLACE: ${marketplace.name}\n\nTITLE:\n${local.title}\n\nSHORT DESCRIPTION:\n${local.shortDescription}\n\nLONG DESCRIPTION:\n${local.longDescription}\n\nFEATURES:\n${featuresText}\n\nTAGS:\n${(local.tags || []).join(', ')}`
     for (const sec of additionalSections) {
       text += `\n\n${sec.label.toUpperCase()}:\n${sectionContentToString(sec.content)}`
     }
@@ -308,7 +314,38 @@ function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resul
           <div className="form-group"><label>App title</label><input value={local.title || ''} onChange={e => set('title', e.target.value)} /></div>
           <div className="form-group"><label>Short description</label><textarea value={local.shortDescription || ''} onChange={e => set('shortDescription', e.target.value)} style={{ minHeight: 56 }} /></div>
           <div className="form-group"><label>Long description</label><textarea value={local.longDescription || ''} onChange={e => set('longDescription', e.target.value)} style={{ minHeight: 140 }} /></div>
-          <div className="form-group"><label>Features (one per line)</label><textarea value={featuresDisplay.join('\n')} onChange={e => set('features', e.target.value.split('\n'))} style={{ minHeight: 80 }} /></div>
+          <div className="form-group">
+            <label>Features ({featuresDisplay.length})</label>
+            {featuresDisplay.map((f, i) => {
+              // Features may be plain strings or {name, description} objects — render both usefully
+              const isObj = f && typeof f === 'object' && (f.name || f.description)
+              if (isObj) {
+                return (
+                  <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 12px', marginBottom: 8, background: 'var(--bg-surface)' }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Feature {i + 1}</div>
+                    <div className="form-group" style={{ marginBottom: 6 }}>
+                      <label style={{ fontSize: 11 }}>Name</label>
+                      <input value={f.name || ''} onChange={e => {
+                        const updated = [...local.features]; updated[i] = { ...f, name: e.target.value }; set('features', updated)
+                      }} style={{ fontSize: 12 }} />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: 11 }}>Description</label>
+                      <textarea value={f.description || ''} onChange={e => {
+                        const updated = [...local.features]; updated[i] = { ...f, description: e.target.value }; set('features', updated)
+                      }} style={{ minHeight: 60, fontSize: 12 }} />
+                    </div>
+                  </div>
+                )
+              }
+              // Plain string fallback
+              return (
+                <textarea key={i} value={featureToString(f)} onChange={e => {
+                  const updated = [...local.features]; updated[i] = e.target.value; set('features', updated)
+                }} style={{ minHeight: 48, marginBottom: 6, fontSize: 12 }} />
+              )
+            })}
+          </div>
           <div className="form-group"><label>Tags</label><input value={(local.tags || []).join(', ')} onChange={e => set('tags', e.target.value.split(',').map(t => t.trim()))} /></div>
 
           {additionalSections.map((sec, i) => (
@@ -446,14 +483,22 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
       `- Short description: ${shortC ? `MUST be ${shortC}.` : 'keep it to roughly one clear sentence.'}`,
       `- Long description: ${longC ? `MUST be ${longC}. This is a HARD requirement.` : 'a few clear paragraphs; do not pad or repeat.'}`,
       `- Features: ${featCountC ? `provide ${featCountC}` : 'provide 3-5 features'}${flMax ? `, each no more than ${flMax} characters` : ''}`,
-      tagMax || tagMin ? `- Tags: ${clause(tagMin, tagMax, 'tags')}` : `- Tags: a few relevant keywords`,
+      tagMax || tagMin ? `- Tags: ${clause(tagMin, tagMax, 'tags')} — relevant search keywords describing what the integration does, which ERPs/CRMs it connects, and which industries it serves (e.g. "ERP integration", "${pair.erp || 'ERP'}", "${pair.crm || 'CRM'}", "data sync", "automation"). REQUIRED — never leave empty.`
+        : `- Tags: provide 5-10 relevant search keywords describing what the integration does, which ERPs/CRMs it connects, and which industries it serves (e.g. "ERP integration", "${pair.erp || 'ERP'}", "${pair.crm || 'CRM'}", "data sync", "automation"). REQUIRED — never leave empty.`,
       `- Tone: ${g.tone || 'factual and descriptive'}`,
       `- Rules: ${(g.rules || []).join(' | ')}`
     ].filter(Boolean).join('\n')
 
-    const featureFormatBlock = g.featureRequirements
+    // Features: if the marketplace has a stated format, honour it exactly.
+    // If not, default to the most common marketplace structure: {name, description} objects,
+    // since flat strings produce unusable paragraph blobs that require heavy manual editing.
+    const hasFeatureFormat = !!(g.featureRequirements && g.featureRequirements.trim())
+    const featureFormatBlock = hasFeatureFormat
       ? `\n${mp.name.toUpperCase()} FEATURE FORMAT (follow this EXACTLY for every item in the features array):\n${g.featureRequirements}\nEach feature you write must match this required structure.\n`
-      : ''
+      : `\nFEATURE FORMAT: Return each feature as a JSON object with two fields:
+- "name": a short feature title (3-8 words, describes what the feature is)
+- "description": 1-3 sentences describing what the feature does and how it solves a customer business problem. Be specific to the ${pair.erp || 'ERP'} + ${pair.crm || 'CRM'} integration.
+Example: {"name":"Real-time order sync","description":"Sales orders created in ${pair.crm || 'the CRM'} are automatically written to ${pair.erp || 'the ERP'} within minutes, eliminating manual re-entry and reducing fulfillment errors."}\n`
 
     // Curate the marketplace's checklist into a clean section plan:
     // near-duplicates collapse into one bucket each, items duplicating core fields are dropped,
@@ -620,7 +665,14 @@ Return ONLY valid JSON no preamble:
     checkMin('Long description', data.longDescription, lMin)
 
     if (Array.isArray(data.features)) {
-      let feats = normalizeFeatures(data.features).map(f => fitText(f, flMax).text)
+      let feats = data.features.map(f => {
+        if (f && typeof f === 'object' && (f.name || f.description)) {
+          // Structured object — trim description to length limit if needed, preserve shape
+          const desc = fitText(f.description || '', flMax)
+          return { name: (f.name || '').trim(), description: desc.text }
+        }
+        return fitText(featureToString(f), flMax).text
+      }).filter(f => f && (typeof f === 'object' ? (f.name || f.description) : f))
       if (fMax && feats.length > fMax) {
         feats = feats.slice(0, fMax)
         notes.push(`Trimmed to the ${fMax} allowed features.`)
