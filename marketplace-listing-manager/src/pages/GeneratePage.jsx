@@ -498,11 +498,11 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
     const hasFeatureFormat = !!(g.featureRequirements && g.featureRequirements.trim())
     const featureFormatBlock = hasFeatureFormat
       ? `\n${mp.name.toUpperCase()} FEATURE FORMAT (follow this EXACTLY for every item in the features array):\n${g.featureRequirements}\nEach feature you write must match this required structure.\n`
-      : `\nFEATURE FORMAT: Return each feature as a JSON object with TWO REQUIRED fields:
-- "name": REQUIRED — a short feature title, 3-8 words, that names what the feature IS (e.g. "Automated order sync", "Real-time invoice visibility", "Configurable sync frequency"). This field MUST NOT be empty.
-- "description": REQUIRED — 1-3 sentences describing what the feature does and how it solves a customer business problem. Be specific to the ${pair.erp || 'ERP'} + ${pair.crm || 'CRM'} integration.
-RULE: Every feature object MUST have a non-empty "name". A description without a name is NOT acceptable.
-Example: {"name":"Automated order sync","description":"Sales orders created in ${pair.crm || 'the CRM'} are automatically written to ${pair.erp || 'the ERP'} within minutes, eliminating manual re-entry and reducing fulfillment errors."}\n`
+      : `\nFEATURE FORMAT: Return each feature as a JSON object. You MUST generate the "name" field FIRST, then the "description". Follow this process for each feature:
+STEP 1 — Write the feature NAME: a short, specific title (3-7 words) that clearly names what the feature IS. Think of it like a product feature heading. Examples: "Automated Sales Order Sync", "Bi-directional Contact Updates", "Real-time Invoice Visibility", "Configurable Sync Frequency", "Pre-built ERP Templates".
+STEP 2 — Write the DESCRIPTION: 2-3 sentences explaining what that named feature does and how it helps the customer. Reference the specific ERP (${pair.erp || 'the ERP'}) and CRM (${pair.crm || 'the CRM'}) by name.
+The name and description must describe the SAME feature. The description should expand on the name — not introduce a new topic.
+Example output: {"name":"Automated Sales Order Sync","description":"Sales orders created in ${pair.crm || 'the CRM'} are automatically written to ${pair.erp || 'the ERP'} within minutes. This eliminates manual re-entry between systems and ensures fulfillment teams always have current order data."}\n`
 
     // Curate the marketplace's checklist into a clean section plan:
     // near-duplicates collapse into one bucket each, items duplicating core fields are dropped,
@@ -669,15 +669,15 @@ Return ONLY valid JSON no preamble:
     checkMin('Long description', data.longDescription, lMin)
 
     if (Array.isArray(data.features)) {
-      let feats = data.features.map(f => {
+      let feats = data.features.map((f, fi) => {
         if (f && typeof f === 'object' && (f.name || f.description)) {
           const desc = fitText(f.description || '', flMax)
-          // If the AI left name blank, derive a short title from the first few words of the description
           let name = (f.name || '').trim()
-          if (!name && desc.text) {
-            const words = desc.text.replace(/[^a-zA-Z0-9 ]/g, ' ').split(/\s+/).filter(Boolean)
-            name = words.slice(0, 5).join(' ')
-          }
+          // If name is missing OR looks like it was auto-filled from the description start
+          // (a sign the AI ignored the instruction), flag it clearly rather than produce a fragment
+          const descStart = desc.text.toLowerCase().slice(0, name.length + 5)
+          const looksLikeFallback = !name || (name.length > 0 && descStart.includes(name.toLowerCase()))
+          if (looksLikeFallback) name = `[CONFIRM: feature ${fi + 1} name]`
           return { name, description: desc.text }
         }
         return fitText(featureToString(f), flMax).text
