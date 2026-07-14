@@ -320,14 +320,17 @@ function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resul
               // Features may be plain strings or {name, description} objects — render both usefully
               const isObj = f && typeof f === 'object' && (f.name || f.description)
               if (isObj) {
+                const nameMissing = !f.name || !f.name.trim()
                 return (
-                  <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 12px', marginBottom: 8, background: 'var(--bg-surface)' }}>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Feature {i + 1}</div>
+                  <div key={i} style={{ border: `1px solid ${nameMissing ? 'var(--red)' : 'var(--border)'}`, borderRadius: 'var(--radius)', padding: '10px 12px', marginBottom: 8, background: 'var(--bg-surface)' }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: nameMissing ? 'var(--red)' : 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+                      Feature {i + 1}{nameMissing ? ' — name required' : ''}
+                    </div>
                     <div className="form-group" style={{ marginBottom: 6 }}>
-                      <label style={{ fontSize: 11 }}>Name</label>
+                      <label style={{ fontSize: 11 }}>Name{nameMissing ? ' ⚠' : ''}</label>
                       <input value={f.name || ''} onChange={e => {
                         const updated = [...local.features]; updated[i] = { ...f, name: e.target.value }; set('features', updated)
-                      }} style={{ fontSize: 12 }} />
+                      }} style={{ fontSize: 12, borderColor: nameMissing ? 'var(--red)' : undefined }} placeholder={nameMissing ? 'Enter a feature name (3-8 words)' : ''} />
                     </div>
                     <div className="form-group" style={{ marginBottom: 0 }}>
                       <label style={{ fontSize: 11 }}>Description</label>
@@ -495,10 +498,11 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
     const hasFeatureFormat = !!(g.featureRequirements && g.featureRequirements.trim())
     const featureFormatBlock = hasFeatureFormat
       ? `\n${mp.name.toUpperCase()} FEATURE FORMAT (follow this EXACTLY for every item in the features array):\n${g.featureRequirements}\nEach feature you write must match this required structure.\n`
-      : `\nFEATURE FORMAT: Return each feature as a JSON object with two fields:
-- "name": a short feature title (3-8 words, describes what the feature is)
-- "description": 1-3 sentences describing what the feature does and how it solves a customer business problem. Be specific to the ${pair.erp || 'ERP'} + ${pair.crm || 'CRM'} integration.
-Example: {"name":"Real-time order sync","description":"Sales orders created in ${pair.crm || 'the CRM'} are automatically written to ${pair.erp || 'the ERP'} within minutes, eliminating manual re-entry and reducing fulfillment errors."}\n`
+      : `\nFEATURE FORMAT: Return each feature as a JSON object with TWO REQUIRED fields:
+- "name": REQUIRED — a short feature title, 3-8 words, that names what the feature IS (e.g. "Automated order sync", "Real-time invoice visibility", "Configurable sync frequency"). This field MUST NOT be empty.
+- "description": REQUIRED — 1-3 sentences describing what the feature does and how it solves a customer business problem. Be specific to the ${pair.erp || 'ERP'} + ${pair.crm || 'CRM'} integration.
+RULE: Every feature object MUST have a non-empty "name". A description without a name is NOT acceptable.
+Example: {"name":"Automated order sync","description":"Sales orders created in ${pair.crm || 'the CRM'} are automatically written to ${pair.erp || 'the ERP'} within minutes, eliminating manual re-entry and reducing fulfillment errors."}\n`
 
     // Curate the marketplace's checklist into a clean section plan:
     // near-duplicates collapse into one bucket each, items duplicating core fields are dropped,
@@ -667,9 +671,14 @@ Return ONLY valid JSON no preamble:
     if (Array.isArray(data.features)) {
       let feats = data.features.map(f => {
         if (f && typeof f === 'object' && (f.name || f.description)) {
-          // Structured object — trim description to length limit if needed, preserve shape
           const desc = fitText(f.description || '', flMax)
-          return { name: (f.name || '').trim(), description: desc.text }
+          // If the AI left name blank, derive a short title from the first few words of the description
+          let name = (f.name || '').trim()
+          if (!name && desc.text) {
+            const words = desc.text.replace(/[^a-zA-Z0-9 ]/g, ' ').split(/\s+/).filter(Boolean)
+            name = words.slice(0, 5).join(' ')
+          }
+          return { name, description: desc.text }
         }
         return fitText(featureToString(f), flMax).text
       }).filter(f => f && (typeof f === 'object' ? (f.name || f.description) : f))
