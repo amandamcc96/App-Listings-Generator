@@ -86,6 +86,55 @@ function selectKnowledge(blocks, queryText, maxChars) {
   return out.trim()
 }
 
+// Extract a meaningful feature title from a description when the AI leaves the name blank.
+// Integration features follow a pattern: [data objects] [verb] between [systems].
+// We extract the subject noun phrase and pair it with an action word.
+function extractFeatureName(desc) {
+  if (!desc) return 'Data Integration Feature'
+  let text = desc.trim()
+  // Strip leading product names and generic subjects that aren't the actual feature
+  text = text.replace(/^(SYNC|Commercient SYNC|Commercient|The integration|This integration|This feature|The connector)\s+(runs|supports|uses|is built|provides|enables|offers|includes|allows|delivers)\s+/i, '')
+  // Also strip "on/on a/in" after the verb was removed
+  text = text.replace(/^(on a|on|in|via|through|from)\s+/i, '')
+  // Find where the main verb phrase starts — everything before it is the subject
+  const verbRe = /\b(are|is|can be|will be|gets?)\s+(replicated|synced|synchronized|made available|transferred|written|updated|pushed|pulled|imported|exported|integrated|moved|mapped|delivered|maintained|configured|adjusted|supported|built|designed)/i
+  const verbMatch = text.match(verbRe)
+  let subject = verbMatch ? text.slice(0, verbMatch.index).trim() : text.split(/[.,;!?]/)[0].trim()
+  // Strip trailing "from [System]" or "maintained in [System]" clauses
+  subject = subject.replace(/\s+(from|maintained in|stored in|managed in|tracked in|kept in|in|within|between|for)\s+[A-Z][\w\s]*$/i, '').trim()
+  // Strip trailing verb phrases like "to move data", "that links CRM", "designed for"
+  subject = subject.replace(/\s+(to|that|which|designed|configured|intended)\s+\w.*$/i, '').trim()
+  // Strip leading articles and residual product names
+  subject = subject.replace(/^(the|a|an|this|each|all|every|Commercient'?s?|SYNC'?s?)\s+/gi, '').trim()
+  // Strip leading "library of" type phrases
+  subject = subject.replace(/^(library of|collection of|set of)\s+/i, '').trim()
+  // Cap at 6 words, title-case
+  let words = subject.split(/\s+/).slice(0, 6)
+  // If after extraction we have very few meaningful words, try the first clause of the original
+  if (words.length < 2 || words.join(' ').length < 8) {
+    const firstClause = desc.split(/[.,;!?]/)[0].replace(/^(the|a|an|this|SYNC|Commercient)\s+/gi, '').trim()
+    words = firstClause.split(/\s+/).slice(0, 6)
+  }
+  const titleCased = words.map((w, idx) => {
+    if (['and', 'or', 'the', 'a', 'an', 'in', 'of', 'to', 'for', 'by', 'on', 'at'].includes(w.toLowerCase()) && idx > 0) return w.toLowerCase()
+    return w.charAt(0).toUpperCase() + w.slice(1)
+  }).join(' ')
+    // Final cleanup: strip trailing participles, prepositions, and filler words from the title
+    .replace(/\s+(Designed|Configured|Built|Reduces?|Enables?|Provides?|Includes?|Including)\b.*$/i, '')
+    .replace(/,\s*$/, '')
+    .trim()
+  // Derive an action word from the verb if found
+  if (verbMatch) {
+    const verb = verbMatch[2].toLowerCase()
+    const actionMap = { 'replicated': 'Sync', 'synced': 'Sync', 'synchronized': 'Sync', 'transferred': 'Sync', 'moved': 'Sync', 'mapped': 'Mapping', 'pushed': 'Sync', 'pulled': 'Sync', 'imported': 'Import', 'exported': 'Export', 'integrated': 'Integration', 'made available': 'Visibility', 'written': 'Write-back', 'updated': 'Updates', 'delivered': 'Delivery', 'maintained': 'Management', 'configured': 'Configuration', 'adjusted': 'Configuration', 'supported': 'Support', 'built': 'Templates', 'designed': 'Templates' }
+    const action = actionMap[verb] || 'Sync'
+    if (!titleCased.toLowerCase().includes(action.toLowerCase())) {
+      return `${titleCased} ${action}`
+    }
+  }
+  return titleCased || 'Data Integration Feature'
+}
+
 // Guarantee a string fits within max chars, cutting at a sentence boundary when possible, else a word boundary
 function fitText(text, max) {
   if (!text || typeof max !== 'number' || max <= 0 || text.length <= max) return { text, trimmed: false }
@@ -669,15 +718,21 @@ Return ONLY valid JSON no preamble:
     checkMin('Long description', data.longDescription, lMin)
 
     if (Array.isArray(data.features)) {
-      let feats = data.features.map((f, fi) => {
+      let feats = data.features.map(f => {
         if (f && typeof f === 'object' && (f.name || f.description)) {
           const desc = fitText(f.description || '', flMax)
           let name = (f.name || '').trim()
-          // If name is missing OR looks like it was auto-filled from the description start
-          // (a sign the AI ignored the instruction), flag it clearly rather than produce a fragment
-          const descStart = desc.text.toLowerCase().slice(0, name.length + 5)
-          const looksLikeFallback = !name || (name.length > 0 && descStart.includes(name.toLowerCase()))
-          if (looksLikeFallback) name = `[CONFIRM: feature ${fi + 1} name]`
+          // If name is missing or is just the start of the description (AI ignored the instruction),
+          // derive a proper title from the description — never leave it blank or use a placeholder
+          if (!name) {
+            name = extractFeatureName(desc.text)
+          } else {
+            // Check if the "name" is just the first few words of the description (not a real title)
+            const descStart = desc.text.toLowerCase().slice(0, name.length + 10)
+            if (descStart.startsWith(name.toLowerCase())) {
+              name = extractFeatureName(desc.text)
+            }
+          }
           return { name, description: desc.text }
         }
         return fitText(featureToString(f), flMax).text
