@@ -70,7 +70,7 @@ exports.handler = async function(event, context) {
     const data = await response.json()
     const text = data.content.map(i => i.text || '').join('')
     const clean = text.replace(/```json|```/g, '').trim()
-    const jsonMatch = clean.match(/\{[\s\S]*\}|\{[\s\S]*$/)
+    const jsonMatch = clean.match(/\{[\s\S]*\}|\[[\s\S]*\]|\{[\s\S]*$|\[[\s\S]*$/)
     if (!jsonMatch) {
       return { statusCode: 500, body: JSON.stringify({ error: 'AI did not return valid JSON' }) }
     }

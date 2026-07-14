@@ -718,25 +718,67 @@ Return ONLY valid JSON no preamble:
     checkMin('Long description', data.longDescription, lMin)
 
     if (Array.isArray(data.features)) {
+      // Normalize features and collect descriptions
       let feats = data.features.map(f => {
         if (f && typeof f === 'object' && (f.name || f.description)) {
           const desc = fitText(f.description || '', flMax)
-          let name = (f.name || '').trim()
-          // If name is missing or is just the start of the description (AI ignored the instruction),
-          // derive a proper title from the description — never leave it blank or use a placeholder
-          if (!name) {
-            name = extractFeatureName(desc.text)
-          } else {
-            // Check if the "name" is just the first few words of the description (not a real title)
-            const descStart = desc.text.toLowerCase().slice(0, name.length + 10)
-            if (descStart.startsWith(name.toLowerCase())) {
-              name = extractFeatureName(desc.text)
-            }
-          }
-          return { name, description: desc.text }
+          return { name: (f.name || '').trim(), description: desc.text }
         }
-        return fitText(featureToString(f), flMax).text
-      }).filter(f => f && (typeof f === 'object' ? (f.name || f.description) : f))
+        const text = fitText(featureToString(f), flMax).text
+        return text ? { name: '', description: text } : null
+      }).filter(Boolean)
+
+      // Check which features need names (missing or looks like the description start)
+      const needsName = feats.map((f, i) => {
+        if (!f.name) return true
+        const descStart = f.description.toLowerCase().slice(0, f.name.length + 10)
+        return descStart.startsWith(f.name.toLowerCase())
+      })
+
+      // If any features need names, make ONE small AI call to name them all at once.
+      // This is fast (~2s, ~200 tokens out) and produces far better titles than regex extraction.
+      if (needsName.some(Boolean) && feats.length > 0) {
+        try {
+          const namingPrompt = `You are writing short feature titles for a marketplace app listing.
+
+For each feature description below, write a concise, specific title (3-7 words) that names what the feature IS. Think of it as a product feature heading a customer would scan.
+
+Good titles: "Automated Sales Order Sync", "Real-time Invoice Visibility", "Bi-directional Contact Updates", "Cloud-hosted Integration", "Pre-built Data Templates", "Configurable Sync Frequency", "Warehouse Inventory Tracking"
+Bad titles: "Data is synced" (too vague), "The integration runs on a schedule" (a sentence, not a title), "Feature 1" (meaningless)
+
+${feats.map((f, i) => `${i + 1}. ${f.description.slice(0, 300)}`).join('\n')}
+
+Return ONLY valid JSON — an array of strings, one title per feature, in the same order:
+["title for 1","title for 2",...]`
+
+          const nameResult = await callGenerate(namingPrompt, 300)
+          // nameResult should be an array of strings, or have a titles/names field
+          let names = []
+          if (Array.isArray(nameResult)) {
+            names = nameResult
+          } else if (Array.isArray(nameResult.titles)) {
+            names = nameResult.titles
+          } else if (Array.isArray(nameResult.names)) {
+            names = nameResult.names
+          } else {
+            // Try to find an array in the response
+            const firstArray = Object.values(nameResult).find(v => Array.isArray(v))
+            if (firstArray) names = firstArray
+          }
+
+          feats.forEach((f, i) => {
+            if (needsName[i] && names[i] && typeof names[i] === 'string' && names[i].trim()) {
+              f.name = names[i].trim()
+            }
+          })
+        } catch (e) {
+          // Naming call failed — fall back to regex extraction so features still have names
+          feats.forEach((f, i) => {
+            if (needsName[i]) f.name = extractFeatureName(f.description)
+          })
+        }
+      }
+
       if (fMax && feats.length > fMax) {
         feats = feats.slice(0, fMax)
         notes.push(`Trimmed to the ${fMax} allowed features.`)
