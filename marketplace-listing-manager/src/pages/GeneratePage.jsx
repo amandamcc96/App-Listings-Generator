@@ -616,6 +616,11 @@ ${tMin ? `- The title MUST be at least ${tMin} characters.` : ''}
 ${sMax ? `- The short description MUST NOT exceed ${sMax} characters.` : ''}
 ${sMin ? `- The short description MUST be at least ${sMin} characters.` : ''}
 
+URL AND LINK RULES:
+- Do NOT include any URLs, links, setup documentation references, install button references, Terms of Service, Privacy Policy, or support page references in the long description.
+- Do NOT add [CONFIRM] placeholders for URLs or links in any field. URLs are handled separately outside the listing copy.
+- The long description should contain ONLY product and integration content — what it does, how it works, what data it syncs.
+
 ${toneBlock}
 
 Use your knowledge of both platforms to write an accurate factual listing. Return ONLY valid JSON no preamble:
@@ -688,7 +693,11 @@ Return ONLY valid JSON no preamble:
     data.additionalSections = dedupeSections([...sections, ...autofilled])
 
     if (data.longDescription) {
-      data.longDescription = data.longDescription.replace(/<[^>]*>/g, '').replace(/#{1,6}\s/g, '').replace(/\*\*/g, '').trim()
+      data.longDescription = data.longDescription
+        .replace(/<[^>]*>/g, '').replace(/#{1,6}\s/g, '').replace(/\*\*/g, '')
+        .replace(/\[CONFIRM:[^\]]*(?:URL|url|link|documentation|Terms of Service|Privacy Policy|support)[^\]]*\]\n?/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
     }
     if (data.shortDescription) {
       data.shortDescription = data.shortDescription.replace(/<[^>]*>/g, '').trim()
