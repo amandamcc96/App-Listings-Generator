@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ExternalLink, Image, CheckCircle } from 'lucide-react'
 
 // Format a min/max pair honestly: "50 max", "160 min", "160–3000", or "no limit stated"
@@ -16,6 +17,27 @@ function SpecRow({ label, value }) {
     <div style={{ display: 'flex', gap: 8, fontSize: 12, lineHeight: 1.6, marginBottom: 6 }}>
       <span style={{ fontWeight: 600, color: 'var(--text-muted)', flexShrink: 0, minWidth: 90 }}>{label}</span>
       <span style={{ color: 'var(--text-muted)' }}>{value}</span>
+    </div>
+  )
+}
+
+function MpLogo({ mp, size = 34, radius = 8, fontSize = 12 }) {
+  const [imgFailed, setImgFailed] = useState(false)
+  if (mp.logoDomain && !imgFailed) {
+    return (
+      <div className="mp-badge" style={{ background: '#fff', width: size, height: size, borderRadius: radius, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 3 }}>
+        <img
+          src={`https://logo.clearbit.com/${mp.logoDomain}`}
+          alt={mp.name}
+          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+          onError={() => setImgFailed(true)}
+        />
+      </div>
+    )
+  }
+  return (
+    <div className="mp-badge" style={{ background: mp.color, color: mp.textColor, width: size, height: size, borderRadius: radius, fontSize }}>
+      {mp.icon}
     </div>
   )
 }
@@ -45,9 +67,7 @@ export default function GuidelinesPage({ marketplaces }) {
           return (
             <div className="card" key={mp.id}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                <div className="mp-badge" style={{ background: mp.color, color: mp.textColor, width: 34, height: 34, borderRadius: 8, fontSize: 12 }}>
-                  {mp.icon}
-                </div>
+                <MpLogo mp={mp} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{mp.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>

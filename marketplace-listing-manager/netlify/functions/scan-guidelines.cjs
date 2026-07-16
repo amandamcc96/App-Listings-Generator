@@ -9,7 +9,7 @@ exports.handler = async function(event, context) {
   }
 
   try {
-    const { name, urls, guidelines } = JSON.parse(event.body)
+    const { name, urls, guidelines, logoDomain } = JSON.parse(event.body)
     if (!name || !guidelines) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Name and guidelines are required' }) }
     }
@@ -23,6 +23,7 @@ exports.handler = async function(event, context) {
     const marketplace = {
       id,
       name,
+      logoDomain: logoDomain || '',
       color: '#7c6af7',
       textColor: '#fff',
       icon: name.substring(0, 2).toUpperCase(),

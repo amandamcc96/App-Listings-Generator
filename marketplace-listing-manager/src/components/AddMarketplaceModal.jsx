@@ -28,6 +28,14 @@ export function mergeGuidelineFragments(fragments) {
   return out
 }
 
+// Extract domain from a URL for automatic logo fetching (strips www/developer/docs subdomains)
+export function extractLogoDomain(urls) {
+  if (!urls || urls.length === 0) return ''
+  try {
+    return new URL(urls[0]).hostname.replace(/^(www\.|developers?\.|docs\.|developer-docs\.)/, '')
+  } catch { return '' }
+}
+
 // Fetch one page via Jina with a per-URL timeout so a slow page can't hang the whole scan
 export async function fetchPage(url) {
   try {
@@ -92,10 +100,11 @@ export default function AddMarketplaceModal({ onSave, onClose }) {
 
       setStatus('Saving marketplace...')
       const merged = mergeGuidelineFragments(fragments)
+      const logoDomain = extractLogoDomain(validUrls)
       const resp = await fetch('/.netlify/functions/scan-guidelines', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName, urls: validUrls, guidelines: merged })
+        body: JSON.stringify({ name: trimmedName, urls: validUrls, guidelines: merged, logoDomain })
       })
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: 'Server error' }))

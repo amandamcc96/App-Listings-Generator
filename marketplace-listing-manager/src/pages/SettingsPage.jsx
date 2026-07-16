@@ -183,6 +183,28 @@ function AddUrlModal({ marketplace, onClose, onSaved }) {
   )
 }
 
+// Logo-aware marketplace badge: shows company logo from Clearbit if logoDomain exists, falls back to text icon
+function MpLogo({ mp, size = 30, radius = 7, fontSize = 11 }) {
+  const [imgFailed, setImgFailed] = useState(false)
+  if (mp.logoDomain && !imgFailed) {
+    return (
+      <div className="mp-badge" style={{ background: '#fff', width: size, height: size, borderRadius: radius, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 3 }}>
+        <img
+          src={`https://logo.clearbit.com/${mp.logoDomain}`}
+          alt={mp.name}
+          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+          onError={() => setImgFailed(true)}
+        />
+      </div>
+    )
+  }
+  return (
+    <div className="mp-badge" style={{ background: mp.color, color: mp.textColor, width: size, height: size, borderRadius: radius, fontSize }}>
+      {mp.icon}
+    </div>
+  )
+}
+
 function MarketplaceRow({ marketplace, onDelete, onRescan, onUrlsAdded }) {
   const [rescanning, setRescanning] = useState(false)
   const [rescanStatus, setRescanStatus] = useState('')
@@ -223,9 +245,7 @@ function MarketplaceRow({ marketplace, onDelete, onRescan, onUrlsAdded }) {
       <div style={{ borderBottom: '1px solid var(--border)', padding: '12px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
-            <div className="mp-badge" style={{ background: marketplace.color, color: marketplace.textColor, width: 30, height: 30, borderRadius: 7, fontSize: 11 }}>
-              {marketplace.icon}
-            </div>
+            <MpLogo mp={marketplace} />
             <div>
               <div style={{ fontSize: 13, fontWeight: 500 }}>{marketplace.name}</div>
               <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>

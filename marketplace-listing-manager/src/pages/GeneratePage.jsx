@@ -296,6 +296,20 @@ function LimitPill({ label, current, min, max }) {
   return <span className={`badge ${cls}`} style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{text}</span>
 }
 
+
+function MpLogo({ mp, size, radius, fontSize }) {
+  const [imgFailed, setImgFailed] = useState(false)
+  const s = size || 24; const r = radius || 6; const fs2 = fontSize || 10
+  if (mp.logoDomain && !imgFailed) {
+    return (
+      <div className="mp-badge" style={{ background: '#fff', width: s, height: s, borderRadius: r, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 2 }}>
+        <img src={`https://logo.clearbit.com/${mp.logoDomain}`} alt={mp.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} onError={() => setImgFailed(true)} />
+      </div>
+    )
+  }
+  return <div className="mp-badge" style={{ background: mp.color, color: mp.textColor, width: s, height: s, borderRadius: r, fontSize: fs2 }}>{mp.icon}</div>
+}
+
 function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resultKey }) {
   const [expanded, setExpanded] = useState(true)
   const [copied, setCopied] = useState(false)
@@ -342,7 +356,7 @@ function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resul
     <div className="result-card">
       <div className="result-header">
         <div className="result-header-left">
-          <div className="mp-badge" style={{ background: marketplace.color, color: marketplace.textColor }}>{marketplace.icon}</div>
+          <MpLogo mp={marketplace} />
           <div style={{ fontWeight: 600, fontSize: 13 }}>{marketplace.name}</div>
         </div>
         <div className="result-actions">
@@ -616,11 +630,6 @@ ${tMin ? `- The title MUST be at least ${tMin} characters.` : ''}
 ${sMax ? `- The short description MUST NOT exceed ${sMax} characters.` : ''}
 ${sMin ? `- The short description MUST be at least ${sMin} characters.` : ''}
 
-URL AND LINK RULES:
-- Do NOT include any URLs, links, setup documentation references, install button references, Terms of Service, Privacy Policy, or support page references in the long description.
-- Do NOT add [CONFIRM] placeholders for URLs or links in any field. URLs are handled separately outside the listing copy.
-- The long description should contain ONLY product and integration content — what it does, how it works, what data it syncs.
-
 ${toneBlock}
 
 Use your knowledge of both platforms to write an accurate factual listing. Return ONLY valid JSON no preamble:
@@ -693,11 +702,7 @@ Return ONLY valid JSON no preamble:
     data.additionalSections = dedupeSections([...sections, ...autofilled])
 
     if (data.longDescription) {
-      data.longDescription = data.longDescription
-        .replace(/<[^>]*>/g, '').replace(/#{1,6}\s/g, '').replace(/\*\*/g, '')
-        .replace(/\[CONFIRM:[^\]]*(?:URL|url|link|documentation|Terms of Service|Privacy Policy|support)[^\]]*\]\n?/g, '')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim()
+      data.longDescription = data.longDescription.replace(/<[^>]*>/g, '').replace(/#{1,6}\s/g, '').replace(/\*\*/g, '').trim()
     }
     if (data.shortDescription) {
       data.shortDescription = data.shortDescription.replace(/<[^>]*>/g, '').trim()

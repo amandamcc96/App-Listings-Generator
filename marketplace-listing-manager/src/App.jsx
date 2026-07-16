@@ -57,7 +57,7 @@ export default function App() {
       id: Date.now().toString(), appName: listing.title || 'Untitled',
       marketplaceId, marketplaceName: mp?.name || marketplaceId,
       marketplaceColor: mp?.color || '#888', marketplaceTextColor: mp?.textColor || '#fff',
-      marketplaceIcon: mp?.icon || '??', version: listing.version,
+     marketplaceIcon: mp?.icon || '??', marketplaceLogoDomain: mp?.logoDomain || '', version: listing.version,
       savedAt: new Date().toISOString(), listing
     }
     setHistory(prev => [...prev, entry])
