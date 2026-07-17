@@ -43,6 +43,23 @@ exports.handler = async function(event, context) {
       return { statusCode: 500, body: JSON.stringify({ error: err.message }) }
     }
   }
+  // PATCH — update specific fields on a marketplace by id
+  if (event.httpMethod === 'PATCH') {
+    try {
+      const { id, ...fields } = JSON.parse(event.body || '{}')
+      if (!id) return { statusCode: 400, body: JSON.stringify({ error: 'id is required' }) }
+
+      const list = await store.get("list", { type: "json" }) || []
+      const idx = list.findIndex(m => m.id === id)
+      if (idx === -1) return { statusCode: 404, body: JSON.stringify({ error: 'Marketplace not found' }) }
+
+      list[idx] = { ...list[idx], ...fields }
+      await store.setJSON("list", list)
+      return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(list[idx]) }
+    } catch (err) {
+      return { statusCode: 500, body: JSON.stringify({ error: err.message }) }
+    }
+  }
 
   return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) }
 }
