@@ -38,7 +38,7 @@ function HistoryBadge({ entry }) {
     return (
       <div className="mp-badge" style={{ background: '#fff', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 3 }}>
         <img
-          src={`https://logo.clearbit.com/${domain}`}
+          src={`https://www.google.com/s2/favicons?domain=${mp.logoDomain}&sz=128`}
           alt={entry.marketplaceName}
           style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           onError={() => setImgFailed(true)}

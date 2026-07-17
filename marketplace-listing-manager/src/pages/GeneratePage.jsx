@@ -303,7 +303,7 @@ function MpLogo({ mp, size, radius, fontSize }) {
   if (mp.logoDomain && !imgFailed) {
     return (
       <div className="mp-badge" style={{ background: '#fff', width: s, height: s, borderRadius: r, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 2 }}>
-        <img src={`https://logo.clearbit.com/${mp.logoDomain}`} alt={mp.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} onError={() => setImgFailed(true)} />
+       <img src={`https://www.google.com/s2/favicons?domain=${mp.logoDomain}&sz=128`} alt={mp.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} onError={() => setImgFailed(true)} />
       </div>
     )
   }

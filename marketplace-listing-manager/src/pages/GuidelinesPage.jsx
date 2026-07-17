@@ -27,7 +27,7 @@ function MpLogo({ mp, size = 34, radius = 8, fontSize = 12 }) {
     return (
       <div className="mp-badge" style={{ background: '#fff', width: size, height: size, borderRadius: radius, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 3 }}>
         <img
-          src={`https://logo.clearbit.com/${mp.logoDomain}`}
+         src={`https://www.google.com/s2/favicons?domain=${mp.logoDomain}&sz=128`}
           alt={mp.name}
           style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           onError={() => setImgFailed(true)}
