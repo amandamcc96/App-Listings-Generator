@@ -912,7 +912,7 @@ Return ONLY valid JSON — an array of strings, one title per feature, in the sa
           <div className="card">
             <div className="card-title">App details</div>
             <div className="form-grid">
-              <div className="form-group"><label>App name</label><input value={appName} onChange={e => { setAppName(e.target.value); setFormError('') }} placeholder="e.g. CommercialSync" /></div>
+              <div className="form-group"><label>App name</label><input value={appName} onChange={e => { setAppName(e.target.value); setFormError('') }} placeholder="e.g. Commercient Sync" /></div>
               <div className="form-group"><label>Version (optional)</label><input value={appVersion} onChange={e => setAppVersion(e.target.value)} placeholder="e.g. 2.1" /></div>
             </div>
             <div className="form-group">
