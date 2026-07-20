@@ -558,15 +558,16 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
     // Features: if the marketplace has a stated format, honour it exactly.
     // If not, default to the most common marketplace structure: {name, description} objects,
     // since flat strings produce unusable paragraph blobs that require heavy manual editing.
-    const hasFeatureFormat = !!(g.featureRequirements && g.featureRequirements.trim())
-    const featureFormatBlock = hasFeatureFormat
-      ? `\n${mp.name.toUpperCase()} FEATURE FORMAT (follow this EXACTLY for every item in the features array):\n${g.featureRequirements}\nEach feature you write must match this required structure.\n`
-      : `\nFEATURE FORMAT: Return each feature as a JSON object. You MUST generate the "name" field FIRST, then the "description". Follow this process for each feature:
-STEP 1 — Write the feature NAME: a short, specific title (3-7 words) that clearly names what the feature IS. Think of it like a product feature heading. Examples: "Automated Sales Order Sync", "Bi-directional Contact Updates", "Real-time Invoice Visibility", "Configurable Sync Frequency", "Pre-built ERP Templates".
-STEP 2 — Write the DESCRIPTION: 2-3 sentences explaining what that named feature does and how it helps the customer. Reference the specific ERP (${pair.erp || 'the ERP'}) and CRM (${pair.crm || 'the CRM'}) by name.
-The name and description must describe the SAME feature. The description should expand on the name — not introduce a new topic.
-Example output: {"name":"Automated Sales Order Sync","description":"Sales orders created in ${pair.crm || 'the CRM'} are automatically written to ${pair.erp || 'the ERP'} within minutes. This eliminates manual re-entry between systems and ensures fulfillment teams always have current order data."}\n`
-
+   const hasFeatureFormat = !!(g.featureRequirements && g.featureRequirements.trim())
+    const needsStructuredFeatures = hasFeatureFormat && /name.*description|feature name|feature title/i.test(g.featureRequirements)
+    let featureFormatBlock
+    if (hasFeatureFormat && needsStructuredFeatures) {
+      featureFormatBlock = `\n${mp.name.toUpperCase()} FEATURE FORMAT (follow this EXACTLY for every item in the features array):\n${g.featureRequirements}\nEach feature you write must match this required structure.\nReturn each feature as a JSON object: {"name":"<short title>","description":"<2-3 sentence explanation>"}\n`
+    } else if (hasFeatureFormat) {
+      featureFormatBlock = `\n${mp.name.toUpperCase()} FEATURE FORMAT (follow this EXACTLY for every item in the features array):\n${g.featureRequirements}\nReturn each feature as a plain text string.\n`
+    } else {
+      featureFormatBlock = `\nFEATURE FORMAT: Return each feature as a plain text string — one clear sentence describing a single capability of the integration. Do NOT return objects with name/description fields unless the marketplace guidelines above explicitly require them.\n`
+    }
     // Curate the marketplace's checklist into a clean section plan:
     // near-duplicates collapse into one bucket each, items duplicating core fields are dropped,
     // trivially derivable items are auto-filled without an AI call.
