@@ -559,7 +559,7 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
     // If not, default to the most common marketplace structure: {name, description} objects,
     // since flat strings produce unusable paragraph blobs that require heavy manual editing.
    const hasFeatureFormat = !!(g.featureRequirements && g.featureRequirements.trim())
-    const needsStructuredFeatures = hasFeatureFormat && /name.*description|feature name|feature title/i.test(g.featureRequirements)
+    const needsStructuredFeatures = hasFeatureFormat && /each feature (requires|must have|needs|includes).*name.*description|feature name.*feature description|requires:.*name.*description/i.test(g.featureRequirements)
     let featureFormatBlock
     if (hasFeatureFormat && needsStructuredFeatures) {
       featureFormatBlock = `\n${mp.name.toUpperCase()} FEATURE FORMAT (follow this EXACTLY for every item in the features array):\n${g.featureRequirements}\nEach feature you write must match this required structure.\nReturn each feature as a JSON object: {"name":"<short title>","description":"<2-3 sentence explanation>"}\n`
