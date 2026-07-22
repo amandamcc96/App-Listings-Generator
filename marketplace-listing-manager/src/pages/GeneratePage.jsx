@@ -731,9 +731,20 @@ Return ONLY valid JSON no preamble:
     checkMin('Title', data.title, tMin)
     checkMin('Short description', data.shortDescription, sMin)
     checkMin('Long description', data.longDescription, lMin)
-
-    if (Array.isArray(data.features)) {
-      // Normalize features and collect descriptions
+    // If this marketplace doesn't use structured features, force any objects the AI returned
+    // back to plain strings — prevents the naming call from triggering and imposing HubSpot's format
+    if (!needsStructuredFeatures && Array.isArray(data.features)) {
+      data.features = data.features.map(f => {
+        if (f && typeof f === 'object') {
+          const name = f.name || f.title || ''
+          const desc = f.description || f.detail || ''
+          if (name && desc) return `${name}: ${desc}`
+          return name || desc || ''
+        }
+        return f
+      }).filter(Boolean)
+    }
+if (Array.isArray(data.features)) {
       let feats = data.features.map(f => {
         if (f && typeof f === 'object' && (f.name || f.description)) {
           const desc = fitText(f.description || '', flMax)
