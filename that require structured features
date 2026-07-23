@@ -1,0 +1,3 @@
+[33m7d307a9[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m fix: force-flatten features to plain text for non-structured marketplaces
+[33m587997c[m fix: tighter structured-feature detection, only trigger on explicit multi-field format
+[33m87c78a3[m fix: per-marketplace feature format, default to plain strings instead of objects

@@ -763,7 +763,7 @@ if (Array.isArray(data.features)) {
 
       // If any features need names, make ONE small AI call to name them all at once.
       // This is fast (~2s, ~200 tokens out) and produces far better titles than regex extraction.
-      if (needsName.some(Boolean) && feats.length > 0) {
+      if (needsStructuredFeatures && needsName.some(Boolean) && feats.length > 0) {
         try {
           const namingPrompt = `You are writing short feature titles for a marketplace app listing.
 
