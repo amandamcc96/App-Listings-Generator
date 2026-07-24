@@ -310,7 +310,7 @@ function MpLogo({ mp, size, radius, fontSize }) {
   return <div className="mp-badge" style={{ background: mp.color, color: mp.textColor, width: s, height: s, borderRadius: r, fontSize: fs2 }}>{mp.icon}</div>
 }
 
-function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resultKey }) {
+function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resultKey, useStructuredFeatures }) {
   const [expanded, setExpanded] = useState(true)
   const [copied, setCopied] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -325,8 +325,8 @@ function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resul
 
   const copyAll = () => {
     const featuresText = featuresDisplay.map((f, i) => {
-      if (f && typeof f === 'object' && (f.name || f.description)) {
-        return `Feature ${i + 1}\nName: ${f.name || ''}\nDescription: ${f.description || ''}`
+      if (useStructuredFeatures && f && typeof f === 'object' && f.name) {
+        return `Feature ${i + 1}\nName: ${f.name}\nDescription: ${f.description || ''}`
       }
       return `Feature ${i + 1}: ${featureToString(f)}`
     }).join('\n\n')
@@ -379,11 +379,11 @@ function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resul
           <div className="form-group"><label>Long description</label><textarea value={local.longDescription || ''} onChange={e => set('longDescription', e.target.value)} style={{ minHeight: 140 }} /></div>
           <div className="form-group">
             <label>Features ({featuresDisplay.length})</label>
-            {featuresDisplay.map((f, i) => {
-              // Features may be plain strings or {name, description} objects — render both usefully
-              const isObj = f && typeof f === 'object' && (f.name || f.description)
-              if (isObj) {
-                const nameMissing = !f.name || !f.name.trim()
+            {useStructuredFeatures ? (
+              featuresDisplay.map((f, i) => {
+                const name = typeof f === 'object' ? (f.name || '') : ''
+                const desc = typeof f === 'object' ? (f.description || '') : (typeof f === 'string' ? f : featureToString(f))
+                const nameMissing = !name.trim()
                 return (
                   <div key={i} style={{ border: `1px solid ${nameMissing ? 'var(--red)' : 'var(--border)'}`, borderRadius: 'var(--radius)', padding: '10px 12px', marginBottom: 8, background: 'var(--bg-surface)' }}>
                     <div style={{ fontSize: 10, fontWeight: 600, color: nameMissing ? 'var(--red)' : 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
@@ -391,26 +391,26 @@ function ResultCard({ marketplace, result, onSave, onDelete, onRegenerate, resul
                     </div>
                     <div className="form-group" style={{ marginBottom: 6 }}>
                       <label style={{ fontSize: 11 }}>Name{nameMissing ? ' ⚠' : ''}</label>
-                      <input value={f.name || ''} onChange={e => {
-                        const updated = [...local.features]; updated[i] = { ...f, name: e.target.value }; set('features', updated)
+                      <input value={name} onChange={e => {
+                        const updated = [...local.features]; updated[i] = { ...(typeof f === 'object' ? f : {}), name: e.target.value, description: desc }; set('features', updated)
                       }} style={{ fontSize: 12, borderColor: nameMissing ? 'var(--red)' : undefined }} placeholder={nameMissing ? 'Enter a feature name (3-8 words)' : ''} />
                     </div>
                     <div className="form-group" style={{ marginBottom: 0 }}>
                       <label style={{ fontSize: 11 }}>Description</label>
-                      <textarea value={f.description || ''} onChange={e => {
-                        const updated = [...local.features]; updated[i] = { ...f, description: e.target.value }; set('features', updated)
+                      <textarea value={desc} onChange={e => {
+                        const updated = [...local.features]; updated[i] = { ...(typeof f === 'object' ? f : {}), name, description: e.target.value }; set('features', updated)
                       }} style={{ minHeight: 60, fontSize: 12 }} />
                     </div>
                   </div>
                 )
-              }
-              // Plain string fallback
-              return (
-                <textarea key={i} value={featureToString(f)} onChange={e => {
+              })
+            ) : (
+              featuresDisplay.map((f, i) => (
+                <textarea key={i} value={typeof f === 'string' ? f : featureToString(f)} onChange={e => {
                   const updated = [...local.features]; updated[i] = e.target.value; set('features', updated)
                 }} style={{ minHeight: 48, marginBottom: 6, fontSize: 12 }} />
-              )
-            })}
+              ))
+            )}
           </div>
           <div className="form-group"><label>Tags</label><input value={(local.tags || []).join(', ')} onChange={e => set('tags', e.target.value.split(',').map(t => t.trim()))} /></div>
 
@@ -559,7 +559,7 @@ export default function GeneratePage({ marketplaces, onSaveVersion, generatedRes
     // If not, default to the most common marketplace structure: {name, description} objects,
     // since flat strings produce unusable paragraph blobs that require heavy manual editing.
    const hasFeatureFormat = !!(g.featureRequirements && g.featureRequirements.trim())
-    const needsStructuredFeatures = hasFeatureFormat && /each feature (requires|must have|needs|includes).*name.*description|feature name.*feature description|requires:.*name.*description/i.test(g.featureRequirements)
+    const needsStructuredFeatures = g.structuredFeatures === true
     let featureFormatBlock
     if (hasFeatureFormat && needsStructuredFeatures) {
       featureFormatBlock = `\n${mp.name.toUpperCase()} FEATURE FORMAT (follow this EXACTLY for every item in the features array):\n${g.featureRequirements}\nEach feature you write must match this required structure.\nReturn each feature as a JSON object: {"name":"<short title>","description":"<2-3 sentence explanation>"}\n`
@@ -1014,7 +1014,7 @@ Return ONLY valid JSON — an array of strings, one title per feature, in the sa
                     <button className="btn btn-secondary btn-sm" onClick={() => handleRegenerate(key)}><RefreshCw size={12} /> Retry</button>
                   </div>
                 )
-                return <ResultCard key={mp.id} marketplace={mp} result={r} onSave={onSaveVersion} onDelete={handleDeleteResult} onRegenerate={handleRegenerate} resultKey={key} />
+                return <ResultCard key={mp.id} marketplace={mp} result={r} onSave={onSaveVersion} onDelete={handleDeleteResult} onRegenerate={handleRegenerate} resultKey={key} useStructuredFeatures={mp.guidelines?.structuredFeatures === true} />
               })}
             </div>
           ))}

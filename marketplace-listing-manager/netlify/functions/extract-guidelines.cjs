@@ -42,6 +42,7 @@ Return ONLY valid JSON (no preamble, no code fences):
   "minTags": <number or null>,
   "tone": "<required writing tone, voice, and point of view for the copy - or empty>",
   "featureRequirements": "<the EXACT required format for each feature entry - or empty>",
+  "structuredFeatures": <true ONLY if the marketplace EXPLICITLY requires each feature to be submitted as TWO SEPARATE FIELDS: a short title/name AND a longer description in its listing form. false if features are just a list of text bullet points, sentences, or a single text field per feature. Default to false unless the documentation clearly shows separate name and description inputs per feature>,
   "iconSpec": "<icon dimensions, format, file size, background rules - or empty>",
   "screenshotSpec": "<screenshot dimensions, count, format, content rules - or empty>",
   "videoSpec": "<video platform, length, content rules - or empty>",

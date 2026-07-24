@@ -43,17 +43,33 @@ exports.handler = async function(event, context) {
       return { statusCode: 500, body: JSON.stringify({ error: err.message }) }
     }
   }
-  // PATCH — update specific fields on a marketplace by id
+  // PATCH — update specific fields on a marketplace by id or name
+  // Supports dot-path keys for nested updates: { patch: { 'guidelines.structuredFeatures': true } }
   if (event.httpMethod === 'PATCH') {
     try {
-      const { id, ...fields } = JSON.parse(event.body || '{}')
-      if (!id) return { statusCode: 400, body: JSON.stringify({ error: 'id is required' }) }
+      const { id, name, patch, ...fields } = JSON.parse(event.body || '{}')
+      if (!id && !name) return { statusCode: 400, body: JSON.stringify({ error: 'id or name is required' }) }
 
       const list = await store.get("list", { type: "json" }) || []
-      const idx = list.findIndex(m => m.id === id)
+      const idx = id
+        ? list.findIndex(m => m.id === id)
+        : list.findIndex(m => (m.name || '').trim().toLowerCase() === name.trim().toLowerCase())
       if (idx === -1) return { statusCode: 404, body: JSON.stringify({ error: 'Marketplace not found' }) }
 
-      list[idx] = { ...list[idx], ...fields }
+      const updates = patch || fields
+      for (const [key, val] of Object.entries(updates)) {
+        const parts = key.split('.')
+        if (parts.length === 1) {
+          list[idx][key] = val
+        } else {
+          let obj = list[idx]
+          for (let i = 0; i < parts.length - 1; i++) {
+            if (!obj[parts[i]] || typeof obj[parts[i]] !== 'object') obj[parts[i]] = {}
+            obj = obj[parts[i]]
+          }
+          obj[parts[parts.length - 1]] = val
+        }
+      }
       await store.setJSON("list", list)
       return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(list[idx]) }
     } catch (err) {

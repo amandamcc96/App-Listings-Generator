@@ -8,7 +8,7 @@ const STR_FIELDS = ['tone','featureRequirements','iconSpec','screenshotSpec','vi
 // Numbers: for maxima keep the smallest (most restrictive), for minima keep the largest (most restrictive).
 // Strings: first non-empty wins. Arrays: deduped union.
 export function mergeGuidelineFragments(fragments) {
-  const out = { rules: [], nextSteps: [] }
+  const out = { rules: [], nextSteps: [], structuredFeatures: false }
   STR_FIELDS.forEach(f => { out[f] = '' })
   NUM_FIELDS.forEach(f => { out[f] = null })
   const seenRule = new Set(), seenStep = new Set()
@@ -22,6 +22,7 @@ export function mergeGuidelineFragments(fragments) {
       }
     }
     for (const f of STR_FIELDS) { if (!out[f] && g[f]) out[f] = g[f] }
+    if (g.structuredFeatures === true) out.structuredFeatures = true
     for (const r of (g.rules || [])) { const k = String(r).trim().toLowerCase(); if (r && !seenRule.has(k)) { seenRule.add(k); out.rules.push(r) } }
     for (const s of (g.nextSteps || [])) { const k = String(s).trim().toLowerCase(); if (s && !seenStep.has(k)) { seenStep.add(k); out.nextSteps.push(s) } }
   }
